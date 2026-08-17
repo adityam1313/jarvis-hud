@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const WS_URL = 'ws://localhost:3001';
 const HTTP_API_URL = 'http://localhost:3001/api/command';
-const RECONNECT_DELAY = 2500;
+const RECONNECT_DELAY = 2000;
 
 export default function useJarvisSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -46,12 +46,52 @@ export default function useJarvisSocket() {
   // Barge-In interrupt function
   const triggerBargeIn = useCallback(() => {
     if (window.speechSynthesis && window.speechSynthesis.speaking) {
-      console.log('[JARVIS Voice] Barge-in triggered! Halting TTS playback.');
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
       sendMessage('interrupt');
     }
   }, [sendMessage]);
+
+  // Helper to execute action locally on desktop via Electron IPC
+  const triggerClientAction = useCallback((action) => {
+    if (!action) return;
+    const urlMap = {
+      spotify: 'https://open.spotify.com',
+      youtube: 'https://www.youtube.com',
+      google: 'https://www.google.com',
+      github: 'https://www.github.com',
+      reddit: 'https://www.reddit.com',
+      twitter: 'https://www.x.com',
+      x: 'https://www.x.com',
+      chatgpt: 'https://chatgpt.com',
+      maps: 'https://maps.google.com',
+      gmail: 'https://mail.google.com',
+      wikipedia: 'https://www.wikipedia.org'
+    };
+
+    const target = (action.target || '').toLowerCase().trim();
+    const query = action.query;
+
+    console.log('[JARVIS HUD] Executing client action:', action);
+
+    if (window.jarvisDesktop) {
+      if (action.action === 'launch') {
+        if (urlMap[target]) {
+          window.jarvisDesktop.openUrl(urlMap[target]);
+        } else {
+          window.jarvisDesktop.launchApp(target);
+        }
+      } else if (action.action === 'search' && query) {
+        window.jarvisDesktop.openUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
+      }
+    } else {
+      if (action.action === 'launch' && urlMap[target]) {
+        window.open(urlMap[target], '_blank');
+      } else if (action.action === 'search' && query) {
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank');
+      }
+    }
+  }, []);
 
   // Text-To-Speech function
   const speakText = useCallback((text) => {
@@ -95,11 +135,10 @@ export default function useJarvisSocket() {
     window.speechSynthesis.speak(utterance);
   }, [sendMessage]);
 
-  // Handle incoming JARVIS response with deduplication and dual execution trigger
+  // Handle incoming JARVIS response
   const handleIncomingJarvisResponse = useCallback((respData) => {
     const msgId = respData.id || (respData.text + '_' + respData.timestamp);
     if (processedMsgIdsRef.current.has(msgId)) {
-      console.log('[JARVIS HUD] Ignoring duplicate response:', msgId);
       return;
     }
     processedMsgIdsRef.current.add(msgId);
@@ -112,44 +151,12 @@ export default function useJarvisSocket() {
       time: new Date(respData.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false })
     }]);
 
-    // Client-side Electron execution trigger to guarantee instant launch
     if (respData.action) {
-      const act = respData.action;
-      try {
-        const urlMap = {
-          spotify: 'https://open.spotify.com',
-          youtube: 'https://www.youtube.com',
-          google: 'https://www.google.com',
-          github: 'https://www.github.com',
-          reddit: 'https://www.reddit.com',
-          twitter: 'https://www.x.com',
-          x: 'https://www.x.com',
-          chatgpt: 'https://chatgpt.com',
-          maps: 'https://maps.google.com',
-          gmail: 'https://mail.google.com',
-          wikipedia: 'https://www.wikipedia.org'
-        };
-
-        if (window.require) {
-          const { ipcRenderer } = window.require('electron');
-          if (act.action === 'launch' && act.target) {
-            if (urlMap[act.target]) {
-              ipcRenderer.invoke('open-url', urlMap[act.target]);
-            } else {
-              ipcRenderer.invoke('launch-app', act.target);
-            }
-          } else if (act.action === 'search' && act.query) {
-            ipcRenderer.invoke('open-url', `https://www.google.com/search?q=${encodeURIComponent(act.query)}`);
-          }
-        }
-      } catch (e) {
-        console.warn('[JARVIS HUD] Client IPC launch notification:', e.message);
-      }
+      triggerClientAction(respData.action);
     }
 
-    // Speak response exactly once
     speakText(respText);
-  }, [speakText]);
+  }, [speakText, triggerClientAction]);
 
   // Connect WebSocket
   const connect = useCallback(() => {
@@ -160,7 +167,6 @@ export default function useJarvisSocket() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[JARVIS HUD] WebSocket link established with backend.');
         setIsConnected(true);
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current);
@@ -207,12 +213,11 @@ export default function useJarvisSocket() {
               break;
           }
         } catch (err) {
-          console.error('[JARVIS HUD] Failed to parse WebSocket packet:', err);
+          console.error('[JARVIS HUD] WebSocket packet parse error:', err);
         }
       };
 
       ws.onclose = () => {
-        console.log('[JARVIS HUD] WebSocket disconnected. Reconnecting in 2.5s...');
         setIsConnected(false);
         wsRef.current = null;
         reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
@@ -222,7 +227,6 @@ export default function useJarvisSocket() {
         ws.close();
       };
     } catch (e) {
-      console.warn('[JARVIS HUD] WebSocket connect error, retrying...', e);
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
     }
   }, [handleIncomingJarvisResponse]);
@@ -345,7 +349,7 @@ export default function useJarvisSocket() {
 
     triggerBargeIn();
 
-    // 1. Show user message in local terminal immediately
+    // 1. Show user message in local terminal
     setMessages(prev => [...prev, {
       type: 'user',
       text: cleanText,
@@ -357,7 +361,6 @@ export default function useJarvisSocket() {
 
     // 3. Fallback to HTTP POST if WebSocket is not open
     if (!sentWs) {
-      console.log('[JARVIS HUD] WebSocket not ready, routing via HTTP API fallback...');
       try {
         setAssistantStatus('THINKING');
         const res = await fetch(HTTP_API_URL, {
