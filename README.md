@@ -1,16 +1,52 @@
-# React + Vite
+# ⚡ J.A.R.V.I.S — Futuristic Sci-Fi HUD Web Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+An advanced, voice-activated AI Voice Assistant interface styled like a cross between Iron Man's suit HUD and a modern sleek cyberpunk control center.
 
-Currently, two official plugins are available:
+![JARVIS HUD](https://img.shields.io/badge/JARVIS-v4.7.1-00f0ff?style=for-the-badge) ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react) ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC?style=for-the-badge&logo=tailwind-css) ![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🌟 Key Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Central Holographic AI Orb (`AICoreOrb`)**: Interactive pulsing core visualizer with rotating dashed rings, SVG tick marks, orbiting dots, audio waveform visualizer, and live status indicator (`LISTENING` / `STANDBY`).
+- **Interactive Command Terminal (`CommandTerminal`)**: Continuous conversation log streaming commands with JARVIS confidence scores and silent text execution.
+- **System Diagnostics & Telemetry (`SystemDiagnostics`)**: Live NLU intent/slot parsing stats, biometric voiceprint matrix verification, animated SVG progress rings for CPU, RAM, and Latency.
+- **Directives Module (`CalendarWidget`)**: High-priority directive agenda with cyan border highlights and glowing hover effects.
+- **Futuristic Aesthetic System**: Custom glassmorphism panels (`backdrop-blur-xl`), animated background grid, CRT scanline overlay, and custom JetBrains Mono / Inter typography.
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js (v18+ recommended)
+- npm
+
+### Installation & Running Locally
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/adityam1313/jarvis-hud.git
+   cd jarvis-hud
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Launch the development server:**
+   ```bash
+   npm run dev
+   ```
+
+4. Open your browser and navigate to `http://localhost:5173`.
+
+---
+
+## 🛠️ Built With
+
+- **Framework**: [React 19](https://react.dev/) + [Vite 8](https://vite.dev/)
+- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+- **Icons**: [Lucide React](https://lucide.dev/)
+- **Typography**: Inter & JetBrains Mono via Google Fonts
