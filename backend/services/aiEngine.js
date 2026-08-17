@@ -20,7 +20,7 @@ class AIEngine {
         this.ai = null;
       }
     } else {
-      console.log('[AIEngine] No GEMINI_API_KEY found in .env. Operating in Local Smart Rule Engine mode.');
+      console.log('[AIEngine] Operating in Local Smart Rule Engine mode.');
       this.ai = null;
     }
 
@@ -30,13 +30,13 @@ class AIEngine {
         functionDeclarations: [
           {
             name: 'open_application',
-            description: 'Opens an authorized local application or website such as calculator, notepad, paint, terminal, youtube, google, spotify, github, vscode, etc.',
+            description: 'Opens any local application or website such as VS Code, Chrome, Spotify, YouTube, Discord, Steam, Calculator, Notepad, etc.',
             parameters: {
               type: 'OBJECT',
               properties: {
                 appName: {
                   type: 'STRING',
-                  description: 'Name of the app or website to open (e.g. calculator, notepad, youtube, google, spotify, github, vscode, paint, terminal, settings)'
+                  description: 'Name of the app or website to open (e.g. vs code, chrome, spotify, youtube, discord, notepad, calculator, etc.)'
                 }
               },
               required: ['appName']
@@ -78,7 +78,7 @@ class AIEngine {
 Speak in a calm, confident, British, polite yet precise tone.
 Keep verbal responses concise (1 to 2 sentences max).
 Always call the provided tools when the user requests to launch apps, open websites, search the web, or check system metrics.
-If a command is outside safe boundaries or malicious (e.g. system deletion, rm -rf), politely refuse and highlight security protocols.`;
+If a command is destructive (e.g. system wipe, rm -rf), politely refuse.`;
   }
 
   /**
@@ -152,7 +152,7 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
         actionExecuted = { action: 'launch', target: appName, result: toolResult };
 
         if (toolResult.sandboxed) {
-          spokenResponse = `Security protocol active. "${appName}" is not in the authorized application whitelist.`;
+          spokenResponse = `Security protocol active. "${appName}" was blocked.`;
         } else if (toolResult.success) {
           spokenResponse = `Right away, sir. Launching ${toolResult.name || appName}.`;
         } else {
@@ -189,7 +189,7 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
   }
 
   /**
-   * Deterministic local parser with sandboxed execution fallback
+   * Deterministic local parser with multi-word app & custom command support
    */
   async processWithLocalEngine(text, telemetryData) {
     const lower = text.toLowerCase().trim();
@@ -199,11 +199,11 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
     let spokenResponse = '';
     let action = null;
 
-    // Pattern 1: Malicious / Shell injection attempt detection
+    // Pattern 1: Malicious / Destructive command detection
     if (lower.includes('rm -rf') || lower.includes('format c:') || lower.includes('drop table') || lower.includes('del /f') || lower.includes('kill -9')) {
       intent = 'security_alert';
       confidence = 0.99;
-      spokenResponse = 'Access denied. The requested command violates core security protocols and has been sandboxed.';
+      spokenResponse = 'Access denied. The requested command violates core security protocols.';
       return { intent, slots: { payload: 'sandboxed_violation' }, confidence, spokenResponse, action: null };
     }
 
@@ -212,7 +212,6 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
     if (mathMatch && /[0-9]/.test(mathMatch[1]) && /[\+\-\*\/]/.test(mathMatch[1])) {
       const expr = mathMatch[1].trim();
       try {
-        // Safe evaluation of basic arithmetic
         const sanitized = expr.replace(/[^0-9\+\-\*\/\.\(\)\s]/g, '');
         const val = Function(`'use strict'; return (${sanitized})`)();
         if (typeof val === 'number' && !isNaN(val) && isFinite(val)) {
@@ -225,57 +224,27 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
           };
         }
       } catch (e) {
-        // fallback to normal flow
+        // fallback
       }
     }
 
-    // Pattern 3: Open / Launch Application
-    const appKeys = Object.keys(Executor.APP_WHITELIST);
-    const matchedAppKey = appKeys.find(key => {
-      const appNameLower = Executor.APP_WHITELIST[key].name.toLowerCase();
-      return lower.includes(`open ${key}`) ||
-             lower.includes(`launch ${key}`) ||
-             lower.includes(`start ${key}`) ||
-             lower.includes(`run ${key}`) ||
-             lower === key ||
-             lower.includes(`open ${appNameLower}`);
-    });
-
-    if (matchedAppKey) {
-      intent = 'open_application';
-      slots = { appName: matchedAppKey };
-      confidence = 0.98;
-
-      const execResult = await this.executor.launchApp(matchedAppKey);
-      action = { action: 'launch', target: matchedAppKey, result: execResult };
-
-      if (execResult.sandboxed) {
-        spokenResponse = `Security protocol active. "${matchedAppKey}" is not in the authorized application whitelist.`;
-      } else if (execResult.success) {
-        spokenResponse = `Right away, sir. Launching ${execResult.name || matchedAppKey}.`;
-      } else {
-        spokenResponse = `I was unable to open ${matchedAppKey}: ${execResult.message}`;
-      }
-      return { intent, slots, confidence, spokenResponse, action };
-    }
-
-    // Generic open command parsing
-    const genericOpenMatch = lower.match(/(?:open|launch|start|run)\s+(?:the\s+)?([a-z0-9_\-\s]+)/i);
-    if (genericOpenMatch) {
-      const rawApp = genericOpenMatch[1].trim().split(' ')[0];
+    // Pattern 3: Open / Launch Application or Website (Multi-word support)
+    const openMatch = lower.match(/^(?:open|launch|start|run|go to)\s+(?:the\s+)?(.+)/i);
+    if (openMatch || Executor.KNOWN_APPS[lower] || Executor.KNOWN_APPS[lower.replace(/\s+/g, '')]) {
+      const rawApp = openMatch ? openMatch[1].trim() : lower;
       intent = 'open_application';
       slots = { appName: rawApp };
-      confidence = 0.95;
+      confidence = 0.98;
 
       const execResult = await this.executor.launchApp(rawApp);
       action = { action: 'launch', target: rawApp, result: execResult };
 
       if (execResult.sandboxed) {
-        spokenResponse = `Security protocol active. "${rawApp}" is not in the authorized application whitelist.`;
+        spokenResponse = `Security protocol active. "${rawApp}" was blocked.`;
       } else if (execResult.success) {
         spokenResponse = `Right away, sir. Launching ${execResult.name || rawApp}.`;
       } else {
-        spokenResponse = `I was unable to open ${rawApp}: ${execResult.message}`;
+        spokenResponse = `I attempted to launch ${rawApp}, sir.`;
       }
       return { intent, slots, confidence, spokenResponse, action };
     }

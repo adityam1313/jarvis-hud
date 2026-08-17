@@ -84,7 +84,6 @@ ipcMain.handle('open-url', async (event, url) => {
     return { success: true };
   } catch (err) {
     console.error('[Electron IPC] openExternal error:', err);
-    // Fallback to cmd start
     exec(`start "" "${url}"`, (cmdErr) => {});
     return { success: true };
   }
@@ -94,21 +93,45 @@ ipcMain.handle('open-url', async (event, url) => {
 ipcMain.handle('launch-app', async (event, appTarget) => {
   console.log('[Electron IPC] Launching native app:', appTarget);
   const targetMap = {
-    notepad: 'notepad',
-    calc: 'calc',
-    calculator: 'calc',
-    paint: 'mspaint',
-    terminal: 'powershell',
-    powershell: 'powershell',
-    cmd: 'cmd',
-    explorer: 'explorer',
-    taskmanager: 'taskmgr',
-    settings: 'start ms-settings:',
-    vscode: 'code',
-    code: 'code'
+    'notepad': 'notepad',
+    'notepad++': 'notepad++',
+    'calc': 'calc',
+    'calculator': 'calc',
+    'paint': 'mspaint',
+    'mspaint': 'mspaint',
+    'terminal': 'powershell',
+    'powershell': 'powershell',
+    'cmd': 'cmd',
+    'command prompt': 'cmd',
+    'explorer': 'explorer',
+    'files': 'explorer',
+    'file explorer': 'explorer',
+    'taskmanager': 'taskmgr',
+    'task manager': 'taskmgr',
+    'taskmgr': 'taskmgr',
+    'settings': 'start ms-settings:',
+    'system settings': 'start ms-settings:',
+    'vscode': 'code',
+    'code': 'code',
+    'vs code': 'code',
+    'visual studio code': 'code',
+    'chrome': 'chrome',
+    'google chrome': 'chrome',
+    'edge': 'msedge',
+    'microsoft edge': 'msedge',
+    'brave': 'brave',
+    'firefox': 'firefox',
+    'word': 'winword',
+    'excel': 'excel',
+    'powerpoint': 'powerpnt',
+    'discord': 'discord',
+    'steam': 'steam',
+    'camera': 'start microsoft.windows.camera:',
+    'control panel': 'control'
   };
 
-  const winCmd = targetMap[appTarget.toLowerCase()] || appTarget;
+  const clean = (appTarget || '').toLowerCase().trim();
+  const winCmd = targetMap[clean] || targetMap[clean.replace(/\s+/g, '')] || clean;
 
   try {
     exec(`powershell.exe -NoProfile -Command "Start-Process '${winCmd}'"`, (err) => {
