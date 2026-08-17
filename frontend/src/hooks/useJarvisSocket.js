@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 const WS_URL = 'ws://localhost:3001';
+const HTTP_API_URL = 'http://localhost:3001/api/command';
 const RECONNECT_DELAY = 2500;
 
 export default function useJarvisSocket() {
@@ -36,7 +37,9 @@ export default function useJarvisSocket() {
   const sendMessage = useCallback((type, data = {}) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type, data }));
+      return true;
     }
+    return false;
   }, []);
 
   // Barge-In interrupt function
@@ -93,75 +96,80 @@ export default function useJarvisSocket() {
 
   // Connect WebSocket
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
+    try {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('[JARVIS HUD] WebSocket link established with backend.');
-      setIsConnected(true);
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = null;
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        switch (msg.type) {
-          case 'telemetry':
-            setTelemetry(msg.data);
-            break;
-
-          case 'nlu_parsed':
-            setNlu(msg.data);
-            break;
-
-          case 'status_change':
-            setAssistantStatus(msg.data.status);
-            break;
-
-          case 'jarvis_response': {
-            const respText = msg.data.text;
-            setMessages(prev => [...prev, {
-              type: 'jarvis',
-              text: respText,
-              action: msg.data.action,
-              time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
-            }]);
-            speakText(respText);
-            break;
-          }
-
-          case 'system':
-            setMessages(prev => [...prev, {
-              type: 'system',
-              text: msg.data.message,
-              time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
-            }]);
-            break;
-
-          default:
-            break;
+      ws.onopen = () => {
+        console.log('[JARVIS HUD] WebSocket link established with backend.');
+        setIsConnected(true);
+        if (reconnectTimer.current) {
+          clearTimeout(reconnectTimer.current);
+          reconnectTimer.current = null;
         }
-      } catch (err) {
-        console.error('[JARVIS HUD] Failed to parse WebSocket packet:', err);
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      console.log('[JARVIS HUD] WebSocket disconnected. Retrying in 2.5s...');
-      setIsConnected(false);
-      wsRef.current = null;
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          switch (msg.type) {
+            case 'telemetry':
+              setTelemetry(msg.data);
+              break;
+
+            case 'nlu_parsed':
+              setNlu(msg.data);
+              break;
+
+            case 'status_change':
+              setAssistantStatus(msg.data.status);
+              break;
+
+            case 'jarvis_response': {
+              const respText = msg.data.text;
+              setMessages(prev => [...prev, {
+                type: 'jarvis',
+                text: respText,
+                action: msg.data.action,
+                time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
+              }]);
+              speakText(respText);
+              break;
+            }
+
+            case 'system':
+              setMessages(prev => [...prev, {
+                type: 'system',
+                text: msg.data.message,
+                time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
+              }]);
+              break;
+
+            default:
+              break;
+          }
+        } catch (err) {
+          console.error('[JARVIS HUD] Failed to parse WebSocket packet:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[JARVIS HUD] WebSocket disconnected. Reconnecting...');
+        setIsConnected(false);
+        wsRef.current = null;
+        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    } catch (e) {
+      console.warn('[JARVIS HUD] WebSocket connect error, will retry...', e);
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
+    }
   }, [speakText]);
 
   useEffect(() => {
@@ -175,10 +183,7 @@ export default function useJarvisSocket() {
   // Speech-to-Text Recognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[JARVIS Voice] Web Speech API not supported in this browser/environment.');
-      return;
-    }
+    if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -186,7 +191,6 @@ export default function useJarvisSocket() {
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
-      console.log('[JARVIS Voice] Microphone listening started.');
       setIsMicActive(true);
     };
 
@@ -216,21 +220,12 @@ export default function useJarvisSocket() {
 
       if (final.trim()) {
         const cleanFinal = final.trim();
-        console.log(`[JARVIS Voice] Recognized: "${cleanFinal}"`);
         setInterimTranscript('');
-
-        setMessages(prev => [...prev, {
-          type: 'user',
-          text: cleanFinal,
-          time: new Date().toLocaleTimeString('en-US', { hour12: false })
-        }]);
-
-        sendMessage('transcript', { text: cleanFinal });
+        sendTranscript(cleanFinal);
       }
     };
 
     recognition.onerror = (err) => {
-      console.error('[JARVIS Voice] Recognition error:', err.error);
       if (err.error === 'not-allowed') {
         setIsMicActive(false);
       }
@@ -263,7 +258,7 @@ export default function useJarvisSocket() {
   const toggleMic = useCallback(() => {
     const recognition = recognitionRef.current;
     if (!recognition) {
-      alert('Microphone speech recognition is not supported in this runtime. You can type commands into the terminal!');
+      alert('Microphone speech recognition is not supported in this runtime. Please type commands directly into the terminal!');
       return;
     }
 
@@ -288,20 +283,56 @@ export default function useJarvisSocket() {
     }
   }, [isMicActive, sendMessage, triggerBargeIn]);
 
-  // Send Manual Text Transcript
-  const sendTranscript = useCallback((text) => {
+  // Guaranteed Send Transcript Function (Dual-Channel WS + HTTP Fallback)
+  const sendTranscript = useCallback(async (text) => {
     if (!text || !text.trim()) return;
+    const cleanText = text.trim();
 
     triggerBargeIn();
 
+    // 1. Show user message in local terminal immediately
     setMessages(prev => [...prev, {
       type: 'user',
-      text: text.trim(),
+      text: cleanText,
       time: new Date().toLocaleTimeString('en-US', { hour12: false })
     }]);
 
-    sendMessage('transcript', { text: text.trim() });
-  }, [sendMessage, triggerBargeIn]);
+    // 2. Try WebSocket channel first
+    const sentWs = sendMessage('transcript', { text: cleanText });
+
+    // 3. If WebSocket is not ready, send via HTTP API fallback
+    if (!sentWs) {
+      console.log('[JARVIS HUD] WebSocket not ready, routing via HTTP API fallback...');
+      try {
+        setAssistantStatus('THINKING');
+        const res = await fetch(HTTP_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: cleanText })
+        });
+        const data = await res.json();
+        if (data.success && data.result) {
+          const respText = data.result.spokenResponse;
+          setNlu({
+            intent: data.result.intent,
+            slots: data.result.slots,
+            confidence: data.result.confidence
+          });
+          setAssistantStatus('SPEAKING');
+          setMessages(prev => [...prev, {
+            type: 'jarvis',
+            text: respText,
+            action: data.result.action,
+            time: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }]);
+          speakText(respText);
+        }
+      } catch (err) {
+        console.error('[JARVIS HUD] HTTP fallback error:', err);
+        setAssistantStatus('IDLE');
+      }
+    }
+  }, [sendMessage, triggerBargeIn, speakText]);
 
   return {
     isConnected,

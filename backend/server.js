@@ -14,6 +14,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Services
+const telemetry = new TelemetryService();
+const aiEngine = new AIEngine();
+const executor = new Executor();
+
+let latestTelemetry = { cpu: 30, memory: 50, latency: 12 };
+const clients = new Set();
+let isInterrupted = false;
+
+function broadcast(data) {
+  const message = JSON.stringify(data);
+  clients.forEach((ws) => {
+    if (ws.readyState === 1) {
+      ws.send(message);
+    }
+  });
+}
+
+// Start telemetry polling
+telemetry.startPolling((metrics) => {
+  if (metrics && metrics.data) {
+    latestTelemetry = metrics.data;
+  }
+  broadcast(metrics);
+}, 2000);
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -24,46 +50,54 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Guaranteed HTTP command execution endpoint (Dual-Channel reliability)
+app.post('/api/command', async (req, res) => {
+  try {
+    const userText = req.body?.text || '';
+    if (!userText.trim()) {
+      return res.status(400).json({ error: 'Text command is required' });
+    }
+
+    console.log(`[JARVIS HTTP API] Processing command: "${userText}"`);
+
+    broadcast({ type: 'status_change', data: { status: 'THINKING' } });
+    const result = await aiEngine.processCommand(userText, latestTelemetry);
+    console.log(`[JARVIS HTTP API] Execution Result:`, result);
+
+    broadcast({
+      type: 'nlu_parsed',
+      data: {
+        intent: result.intent,
+        slots: result.slots,
+        confidence: result.confidence,
+      }
+    });
+
+    broadcast({ type: 'status_change', data: { status: 'SPEAKING' } });
+
+    broadcast({
+      type: 'jarvis_response',
+      data: {
+        text: result.spokenResponse,
+        action: result.action,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[JARVIS HTTP API] Error executing command:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Instantiate Services
-const telemetry = new TelemetryService();
-const aiEngine = new AIEngine();
-const executor = new Executor();
-
-// Track latest telemetry metrics in memory
-let latestTelemetry = { cpu: 30, memory: 50, latency: 12 };
-
-// Track connected WebSocket clients
-const clients = new Set();
-
-// Active processing state for barge-in cancellation
-let isInterrupted = false;
-
-// Broadcast to all connected clients
-function broadcast(data) {
-  const message = JSON.stringify(data);
-  clients.forEach((ws) => {
-    if (ws.readyState === 1) { // WebSocket.OPEN
-      ws.send(message);
-    }
-  });
-}
-
-// Start telemetry polling - broadcast every 2 seconds
-let telemetryInterval = telemetry.startPolling((metrics) => {
-  if (metrics && metrics.data) {
-    latestTelemetry = metrics.data;
-  }
-  broadcast(metrics);
-}, 2000);
-
 wss.on('connection', (ws) => {
   clients.add(ws);
-  console.log(`[JARVIS] Client connected. Active clients: ${clients.size}`);
+  console.log(`[JARVIS WS] Client connected. Total active clients: ${clients.size}`);
 
-  // Send initial welcome & handshake
   ws.send(JSON.stringify({
     type: 'system',
     data: {
@@ -73,11 +107,10 @@ wss.on('connection', (ws) => {
     }
   }));
 
-  // Handle incoming messages from HUD frontend
   ws.on('message', async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      console.log(`[JARVIS] Received message event: ${msg.type}`, msg.data || '');
+      console.log(`[JARVIS WS] Received event: ${msg.type}`, msg.data || '');
 
       switch (msg.type) {
         case 'speech_start': {
@@ -91,7 +124,7 @@ wss.on('connection', (ws) => {
         }
 
         case 'interrupt': {
-          console.log('[JARVIS] >>> BARGE-IN INTERRUPT RECEIVED from client <<<');
+          console.log('[JARVIS WS] >>> BARGE-IN INTERRUPT RECEIVED <<<');
           isInterrupted = true;
           broadcast({ type: 'status_change', data: { status: 'LISTENING' } });
           break;
@@ -100,25 +133,18 @@ wss.on('connection', (ws) => {
         case 'transcript': {
           isInterrupted = false;
           const userText = msg.data?.text || '';
-
           if (!userText.trim()) break;
 
-          console.log(`[JARVIS] Executing command: "${userText}"`);
+          console.log(`[JARVIS WS] Executing transcript: "${userText}"`);
 
-          // 1. Set assistant state to THINKING
           broadcast({ type: 'status_change', data: { status: 'THINKING' } });
-
-          // 2. Process via AI Engine (Gemini Function Calling or Local Fallback)
           const result = await aiEngine.processCommand(userText, latestTelemetry);
 
           if (isInterrupted) {
-            console.log('[JARVIS] Request was cancelled by user interrupt.');
+            console.log('[JARVIS WS] Request cancelled by user interrupt.');
             break;
           }
 
-          console.log(`[JARVIS] Generated Response: "${result.spokenResponse}"`);
-
-          // 3. Broadcast parsed NLU data to update HUD telemetry display
           broadcast({
             type: 'nlu_parsed',
             data: {
@@ -128,10 +154,8 @@ wss.on('connection', (ws) => {
             }
           });
 
-          // 4. Set state to SPEAKING
           broadcast({ type: 'status_change', data: { status: 'SPEAKING' } });
 
-          // 5. Send JARVIS verbal response and action result to HUD
           broadcast({
             type: 'jarvis_response',
             data: {
@@ -150,21 +174,21 @@ wss.on('connection', (ws) => {
         }
 
         default:
-          console.log(`[JARVIS] Unhandled event type: ${msg.type}`);
+          console.log(`[JARVIS WS] Unhandled event: ${msg.type}`);
       }
     } catch (err) {
-      console.error('[JARVIS] Error processing client message:', err.message);
+      console.error('[JARVIS WS] Error processing message:', err.message);
       broadcast({ type: 'status_change', data: { status: 'IDLE' } });
     }
   });
 
   ws.on('close', () => {
     clients.delete(ws);
-    console.log(`[JARVIS] Client disconnected. Remaining: ${clients.size}`);
+    console.log(`[JARVIS WS] Client disconnected. Total active clients: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
-    console.error('[JARVIS] WebSocket error:', err.message);
+    console.error('[JARVIS WS] WebSocket error:', err.message);
     clients.delete(ws);
   });
 });
@@ -174,7 +198,7 @@ server.listen(PORT, () => {
   console.log('  ╔══════════════════════════════════════════════════╗');
   console.log('  ║        ⚡ J.A.R.V.I.S BACKEND ONLINE ⚡          ║');
   console.log('  ╠══════════════════════════════════════════════════╣');
-  console.log(`  ║  HTTP:        http://localhost:${PORT}              ║`);
+  console.log(`  ║  HTTP API:    http://localhost:${PORT}              ║`);
   console.log(`  ║  WebSocket:   ws://localhost:${PORT}                ║`);
   console.log('  ║  NLU Engine:  @google/genai Native Function Calling║');
   console.log('  ║  Sandbox:     Hardcoded Whitelist Enabled        ║');
@@ -183,10 +207,7 @@ server.listen(PORT, () => {
   console.log('');
 });
 
-// Clean shutdown
 process.on('SIGINT', () => {
-  console.log('\n[JARVIS] Initiating graceful shutdown sequence...');
-  telemetry.stopPolling(telemetryInterval);
   wss.close();
   server.close();
   process.exit(0);
