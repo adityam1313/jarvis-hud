@@ -53,7 +53,7 @@ export default function useJarvisSocket() {
     }
   }, [sendMessage]);
 
-  // Text-To-Speech function (Single Invocation Guaranteed)
+  // Text-To-Speech function
   const speakText = useCallback((text) => {
     if (!('speechSynthesis' in window) || !text) return;
 
@@ -95,7 +95,7 @@ export default function useJarvisSocket() {
     window.speechSynthesis.speak(utterance);
   }, [sendMessage]);
 
-  // Handle incoming JARVIS response with deduplication
+  // Handle incoming JARVIS response with deduplication and client-side execution helper
   const handleIncomingJarvisResponse = useCallback((respData) => {
     const msgId = respData.id || (respData.text + '_' + respData.timestamp);
     if (processedMsgIdsRef.current.has(msgId)) {
@@ -112,6 +112,7 @@ export default function useJarvisSocket() {
       time: new Date(respData.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false })
     }]);
 
+    // Speak response exactly once
     speakText(respText);
   }, [speakText]);
 
@@ -176,7 +177,7 @@ export default function useJarvisSocket() {
       };
 
       ws.onclose = () => {
-        console.log('[JARVIS HUD] WebSocket disconnected. Reconnecting...');
+        console.log('[JARVIS HUD] WebSocket disconnected. Reconnecting in 2.5s...');
         setIsConnected(false);
         wsRef.current = null;
         reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);

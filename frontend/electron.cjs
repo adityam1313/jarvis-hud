@@ -1,17 +1,21 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, shell, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
+const { exec } = require('child_process');
 
-// Configure custom isolated cache directory to prevent Windows cache permission locks
-try {
-  const cacheDir = path.join(os.tmpdir(), 'jarvis-hud-desktop-data');
-  app.setPath('userData', cacheDir);
-} catch (e) {
-  // fallback to default
-}
-
+// Completely disable disk cache locks and GPU conflicts to eliminate Windows cache error
+app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('no-sandbox');
+
+// Isolate user data to unique runtime folder
+try {
+  const uniqueDataDir = path.join(os.tmpdir(), 'jarvis-hud-session-' + process.pid);
+  app.setPath('userData', uniqueDataDir);
+} catch (e) {
+  // ignore
+}
 
 let mainWindow;
 
@@ -24,29 +28,20 @@ function createWindow() {
     backgroundColor: '#050508',
     title: 'J.A.R.V.I.S. — AI Command Interface',
     autoHideMenuBar: true,
-    show: false, // show after ready-to-show to prevent white flash
+    show: true,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: false, // allows local websocket & media streams
+      nodeIntegration: true,
+      contextIsolation: false,
+      webSecurity: false,
     },
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
-
-  // Grant microphone & media permissions automatically for voice commands
+  // Grant microphone & media permissions automatically
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'microphone', 'audioCapture', 'notifications'];
-    if (allowedPermissions.includes(permission)) {
-      callback(true);
-    } else {
-      callback(true);
-    }
+    callback(true);
   });
 
-  // Load Vite dev server with fallback
+  // Load Vite dev server or built dist/index.html
   const devUrl = 'http://localhost:5173';
   mainWindow.loadURL(devUrl).catch(() => {
     console.log('[Electron] Loading static dist/index.html...');

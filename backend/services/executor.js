@@ -1,8 +1,8 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import os from 'os';
 
 class Executor {
-  // Hardcoded dictionary whitelist of authorized applications and web destinations
+  // Whitelist mapping of authorized applications and web destinations
   static APP_WHITELIST = {
     // Desktop Applications
     'calculator': {
@@ -72,7 +72,7 @@ class Executor {
       name: 'Visual Studio Code'
     },
     'settings': {
-      windows: 'start ms-settings:',
+      windows: 'ms-settings:',
       darwin: 'open -a "System Preferences"',
       linux: 'gnome-control-center',
       name: 'System Settings'
@@ -132,42 +132,46 @@ class Executor {
   };
 
   /**
-   * Safely opens a URL in the user's default browser with multi-layer OS fallback
+   * Helper to spawn a detached Windows process or URL via Start-Process
    */
-  static openUrl(url) {
+  static launchWindowsTarget(target) {
     return new Promise((resolve) => {
       try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          return resolve({ success: false, error: 'Protocol not permitted' });
-        }
-      } catch (e) {
-        return resolve({ success: false, error: 'Invalid URL format' });
-      }
-
-      const platform = os.platform();
-
-      if (platform === 'win32') {
-        // Windows primary: Start-Process via PowerShell
-        const psCmd = `powershell.exe -NoProfile -Command "Start-Process '${url}'"`;
-        console.log(`[Executor] Launching URL: ${url}`);
-        exec(psCmd, (err) => {
-          if (err) {
-            console.log(`[Executor] PowerShell start failed, falling back to cmd start:`, err.message);
-            exec(`start "" "${url}"`, (cmdErr) => {
-              if (cmdErr) {
-                return resolve({ success: false, error: cmdErr.message });
-              }
-              resolve({ success: true, message: `Opened ${url}` });
-            });
-            return;
-          }
-          console.log(`[Executor] URL successfully opened: ${url}`);
-          resolve({ success: true, message: `Opened ${url}` });
+        const ps = spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process '${target}'`], {
+          stdio: 'ignore',
+          detached: true
         });
-        return;
+        ps.unref();
+        console.log(`[Executor] Launched Windows Target via Start-Process: ${target}`);
+        resolve({ success: true });
+      } catch (err) {
+        console.error(`[Executor] Error launching target ${target}:`, err.message);
+        resolve({ success: false, error: err.message });
       }
+    });
+  }
 
+  /**
+   * Safely opens a URL in the user's default browser
+   */
+  static async openUrl(url) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { success: false, error: 'Protocol not permitted' };
+      }
+    } catch (e) {
+      return { success: false, error: 'Invalid URL format' };
+    }
+
+    const platform = os.platform();
+
+    if (platform === 'win32') {
+      const result = await Executor.launchWindowsTarget(url);
+      return { success: result.success, message: result.success ? `Opened ${url}` : result.error };
+    }
+
+    return new Promise((resolve) => {
       const cmd = platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
       exec(cmd, (err) => {
         if (err) {
@@ -221,40 +225,13 @@ class Executor {
     if (platform === 'win32') {
       const winTarget = target.windows;
       console.log(`[Executor] Launching Windows App: ${winTarget} for ${target.name}`);
-
-      return new Promise((resolve) => {
-        const psCmd = `powershell.exe -NoProfile -Command "Start-Process '${winTarget}'"`;
-        exec(psCmd, (err) => {
-          if (err) {
-            console.log(`[Executor] PowerShell start failed, trying cmd start:`, err.message);
-            exec(`start ${winTarget}`, (cmdErr) => {
-              if (cmdErr) {
-                console.error(`[Executor] Failed to launch ${target.name}:`, cmdErr.message);
-                return resolve({
-                  success: false,
-                  sandboxed: false,
-                  message: `Could not launch ${target.name}: ${cmdErr.message}`
-                });
-              }
-              console.log(`[Executor] Launched via cmd start: ${target.name}`);
-              resolve({
-                success: true,
-                sandboxed: false,
-                name: target.name,
-                message: `Successfully launched ${target.name}.`
-              });
-            });
-            return;
-          }
-          console.log(`[Executor] Launched via Start-Process: ${target.name}`);
-          resolve({
-            success: true,
-            sandboxed: false,
-            name: target.name,
-            message: `Successfully launched ${target.name}.`
-          });
-        });
-      });
+      const result = await Executor.launchWindowsTarget(winTarget);
+      return {
+        success: result.success,
+        sandboxed: false,
+        name: target.name,
+        message: result.success ? `Successfully launched ${target.name}.` : `Could not launch ${target.name}`
+      };
     }
 
     const commandToRun = target[platform];
