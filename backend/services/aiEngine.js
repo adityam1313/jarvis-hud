@@ -14,7 +14,7 @@ class AIEngine {
     if (this.apiKey && this.apiKey !== 'your_gemini_api_key_here') {
       try {
         this.ai = new GoogleGenAI({ apiKey: this.apiKey });
-        console.log('[AIEngine] Initialized Google GenAI SDK with native tool calling.');
+        console.log('[AIEngine] Initialized Google GenAI SDK with native tool calling & audio processing.');
       } catch (err) {
         console.error('[AIEngine] Failed to initialize Google GenAI SDK:', err.message);
         this.ai = null;
@@ -79,6 +79,106 @@ Speak in a calm, confident, British, polite yet precise tone.
 Keep verbal responses concise (1 to 2 sentences max).
 Always call the provided tools when the user requests to launch apps, open websites, search the web, or check system metrics.
 If a command is destructive (e.g. system wipe, rm -rf), politely refuse.`;
+  }
+
+  /**
+   * Process raw microphone audio via Gemini 2.5 Flash multimodal audio engine
+   */
+  async processVoiceAudio(base64Audio, mimeType = 'audio/webm', telemetryData = {}) {
+    if (!this.ai) {
+      console.log('[AIEngine] Raw audio received. GEMINI_API_KEY required for native audio transcription.');
+      return {
+        intent: 'voice_input',
+        slots: {},
+        confidence: 0.9,
+        spokenResponse: 'I received your voice transmission, sir. Please configure your GEMINI_API_KEY in backend/.env for cloud neural speech transcription, or use the command terminal below.',
+        action: null,
+        transcript: '[Voice Transmission Received]'
+      };
+    }
+
+    try {
+      console.log('[AIEngine] Transcribing and interpreting live voice audio with Gemini 2.5 Flash...');
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Audio
+                }
+              },
+              {
+                text: 'Listen to this voice directive. Identify what the user said, output the transcription, and call the appropriate tool if the user wants to open an app, website, or search.'
+              }
+            ]
+          }
+        ],
+        config: {
+          systemInstruction: this.systemInstruction,
+          tools: this.tools,
+          temperature: 0.2
+        }
+      });
+
+      const candidate = response.candidates?.[0];
+      const functionCalls = candidate?.content?.parts?.filter(p => p.functionCall);
+
+      let parsedIntent = 'general_chat';
+      let parsedSlots = {};
+      let spokenResponse = '';
+      let actionExecuted = null;
+      let transcriptText = response.text?.() || '';
+
+      if (functionCalls && functionCalls.length > 0) {
+        const call = functionCalls[0].functionCall;
+        const fnName = call.name;
+        const fnArgs = call.args || {};
+
+        parsedIntent = fnName;
+        parsedSlots = fnArgs;
+
+        if (fnName === 'open_application') {
+          const appName = fnArgs.appName;
+          const toolResult = await this.executor.launchApp(appName);
+          actionExecuted = { action: 'launch', target: appName, result: toolResult };
+          spokenResponse = `Right away, sir. Launching ${toolResult.name || appName}.`;
+        } else if (fnName === 'search_web') {
+          const query = fnArgs.query;
+          const toolResult = await this.executor.searchWeb(query);
+          actionExecuted = { action: 'search', query, result: toolResult };
+          spokenResponse = `Searching the web for "${query}", sir.`;
+        } else if (fnName === 'query_system_telemetry') {
+          const cpu = telemetryData.cpu ?? 35;
+          const mem = telemetryData.memory ?? 58;
+          spokenResponse = `All core systems operational. CPU load is at ${cpu}%, memory utilization is ${mem}%.`;
+        }
+      } else {
+        spokenResponse = transcriptText || 'Understood, sir.';
+      }
+
+      return {
+        intent: parsedIntent,
+        slots: parsedSlots,
+        confidence: 0.98,
+        spokenResponse,
+        action: actionExecuted,
+        transcript: transcriptText
+      };
+    } catch (err) {
+      console.error('[AIEngine] Gemini Voice processing error:', err.message);
+      return {
+        intent: 'error',
+        slots: {},
+        confidence: 0.5,
+        spokenResponse: 'I had difficulty decoding that audio packet, sir. Please try again or type directly into the terminal.',
+        action: null,
+        transcript: '[Audio Error]'
+      };
+    }
   }
 
   /**

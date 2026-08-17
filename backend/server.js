@@ -12,7 +12,7 @@ dotenv.config();
 const PORT = process.env.PORT || 3001;
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Services
 const telemetry = new TelemetryService();
@@ -92,6 +92,49 @@ app.post('/api/command', async (req, res) => {
   }
 });
 
+// Voice Audio Processing Endpoint
+app.post('/api/voice', async (req, res) => {
+  try {
+    const { audio, mimeType } = req.body;
+    if (!audio) {
+      return res.status(400).json({ error: 'Audio data is required' });
+    }
+
+    console.log('[JARVIS Voice API] Processing incoming microphone audio...');
+    broadcast({ type: 'status_change', data: { status: 'THINKING' } });
+
+    const result = await aiEngine.processVoiceAudio(audio, mimeType || 'audio/webm', latestTelemetry);
+    const msgId = 'resp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
+    broadcast({
+      type: 'nlu_parsed',
+      data: {
+        intent: result.intent,
+        slots: result.slots,
+        confidence: result.confidence,
+      }
+    });
+
+    broadcast({ type: 'status_change', data: { status: 'SPEAKING' } });
+
+    broadcast({
+      type: 'jarvis_response',
+      data: {
+        id: msgId,
+        text: result.spokenResponse,
+        action: result.action,
+        transcript: result.transcript,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    res.json({ success: true, result, id: msgId });
+  } catch (err) {
+    console.error('[JARVIS Voice API] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -111,7 +154,6 @@ wss.on('connection', (ws) => {
   ws.on('message', async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      console.log(`[JARVIS WS] Received event: ${msg.type}`, msg.data || '');
 
       switch (msg.type) {
         case 'speech_start': {
@@ -128,6 +170,37 @@ wss.on('connection', (ws) => {
           console.log('[JARVIS WS] >>> BARGE-IN INTERRUPT RECEIVED <<<');
           isInterrupted = true;
           broadcast({ type: 'status_change', data: { status: 'LISTENING' } });
+          break;
+        }
+
+        case 'voice_audio': {
+          console.log('[JARVIS WS] Processing raw voice transmission over WebSocket...');
+          broadcast({ type: 'status_change', data: { status: 'THINKING' } });
+          const result = await aiEngine.processVoiceAudio(msg.data.audio, msg.data.mimeType || 'audio/webm', latestTelemetry);
+
+          const msgId = 'resp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
+          broadcast({
+            type: 'nlu_parsed',
+            data: {
+              intent: result.intent,
+              slots: result.slots,
+              confidence: result.confidence,
+            }
+          });
+
+          broadcast({ type: 'status_change', data: { status: 'SPEAKING' } });
+
+          broadcast({
+            type: 'jarvis_response',
+            data: {
+              id: msgId,
+              text: result.spokenResponse,
+              action: result.action,
+              transcript: result.transcript,
+              timestamp: new Date().toISOString()
+            }
+          });
           break;
         }
 
@@ -178,7 +251,7 @@ wss.on('connection', (ws) => {
         }
 
         default:
-          console.log(`[JARVIS WS] Unhandled event: ${msg.type}`);
+          break;
       }
     } catch (err) {
       console.error('[JARVIS WS] Error processing message:', err.message);
@@ -188,11 +261,9 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     clients.delete(ws);
-    console.log(`[JARVIS WS] Client disconnected. Total active clients: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
-    console.error('[JARVIS WS] WebSocket error:', err.message);
     clients.delete(ws);
   });
 });
@@ -204,8 +275,7 @@ server.listen(PORT, () => {
   console.log('  ╠══════════════════════════════════════════════════╣');
   console.log(`  ║  HTTP API:    http://localhost:${PORT}              ║`);
   console.log(`  ║  WebSocket:   ws://localhost:${PORT}                ║`);
-  console.log('  ║  NLU Engine:  @google/genai Native Function Calling║');
-  console.log('  ║  Sandbox:     Hardcoded Whitelist Enabled        ║');
+  console.log('  ║  Voice Engine:Multimodal Audio + NLU             ║');
   console.log('  ║  Status:      ALL SUBSYSTEMS OPERATIONAL         ║');
   console.log('  ╚══════════════════════════════════════════════════╝');
   console.log('');
