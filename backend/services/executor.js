@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import os from 'os';
 
 class Executor {
@@ -6,49 +6,55 @@ class Executor {
   static APP_WHITELIST = {
     // Desktop Applications
     'calculator': {
-      windows: 'calc',
+      windows: 'calc.exe',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
     },
     'calc': {
-      windows: 'calc',
+      windows: 'calc.exe',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
     },
     'notepad': {
-      windows: 'notepad',
+      windows: 'notepad.exe',
       darwin: 'open -a TextEdit',
       linux: 'gedit',
       name: 'Notepad'
     },
     'paint': {
-      windows: 'mspaint',
+      windows: 'mspaint.exe',
       darwin: 'open -a Paintbrush',
       linux: 'drawing',
       name: 'Paint'
     },
     'terminal': {
-      windows: 'start powershell.exe',
+      windows: 'powershell.exe',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Terminal'
     },
+    'powershell': {
+      windows: 'powershell.exe',
+      darwin: 'open -a Terminal',
+      linux: 'gnome-terminal',
+      name: 'PowerShell'
+    },
     'cmd': {
-      windows: 'start cmd.exe',
+      windows: 'cmd.exe',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Command Prompt'
     },
     'explorer': {
-      windows: 'explorer',
+      windows: 'explorer.exe',
       darwin: 'open .',
       linux: 'nautilus .',
       name: 'File Explorer'
     },
     'files': {
-      windows: 'explorer',
+      windows: 'explorer.exe',
       darwin: 'open .',
       linux: 'nautilus .',
       name: 'File Explorer'
@@ -66,19 +72,23 @@ class Executor {
       name: 'Visual Studio Code'
     },
     'settings': {
-      windows: 'start ms-settings:',
+      windows: 'ms-settings:',
       darwin: 'open -a "System Preferences"',
       linux: 'gnome-control-center',
       name: 'System Settings'
     },
     'taskmanager': {
-      windows: 'start taskmgr',
+      windows: 'taskmgr.exe',
       darwin: 'open -a "Activity Monitor"',
       linux: 'gnome-system-monitor',
       name: 'Task Manager'
     },
 
     // Web Destinations
+    'spotify': {
+      url: 'https://open.spotify.com',
+      name: 'Spotify Web'
+    },
     'youtube': {
       url: 'https://www.youtube.com',
       name: 'YouTube'
@@ -86,10 +96,6 @@ class Executor {
     'google': {
       url: 'https://www.google.com',
       name: 'Google Search'
-    },
-    'spotify': {
-      url: 'https://open.spotify.com',
-      name: 'Spotify Web'
     },
     'github': {
       url: 'https://www.github.com',
@@ -126,7 +132,7 @@ class Executor {
   };
 
   /**
-   * Safely opens a URL in the user's default browser across OSes
+   * Safely opens a URL in the user's default browser (detached, non-blocking)
    */
   static openUrl(url) {
     return new Promise((resolve) => {
@@ -140,16 +146,25 @@ class Executor {
       }
 
       const platform = os.platform();
-      let cmd = `start "" "${url}"`;
-      if (platform === 'darwin') {
-        cmd = `open "${url}"`;
-      } else if (platform === 'linux') {
-        cmd = `xdg-open "${url}"`;
+
+      if (platform === 'win32') {
+        try {
+          const child = spawn('cmd.exe', ['/c', 'start', '', url], {
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+          console.log(`[Executor] Launched URL in browser: ${url}`);
+          return resolve({ success: true, message: `Opened ${url}` });
+        } catch (err) {
+          console.error(`[Executor] Error opening URL:`, err.message);
+          return resolve({ success: false, error: err.message });
+        }
       }
 
+      let cmd = platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
       exec(cmd, (err) => {
         if (err) {
-          console.error(`[Executor] Failed to open URL ${url}:`, err.message);
           return resolve({ success: false, error: err.message });
         }
         resolve({ success: true, message: `Opened ${url}` });
@@ -158,7 +173,7 @@ class Executor {
   }
 
   /**
-   * Execute application launch by strictly verifying against the whitelist dictionary
+   * Execute application launch by strictly verifying against whitelist (detached, non-blocking)
    */
   async launchApp(appName) {
     if (!appName || typeof appName !== 'string') {
@@ -184,7 +199,7 @@ class Executor {
 
     // Handle Web URL destination
     if (target.url) {
-      console.log(`[Executor] Launching Web App: ${target.name} (${target.url})`);
+      console.log(`[Executor] Launching Web Destination: ${target.name} (${target.url})`);
       const result = await Executor.openUrl(target.url);
       return {
         success: result.success,
@@ -196,8 +211,34 @@ class Executor {
 
     // Handle Native OS Desktop App
     const platform = os.platform();
-    let commandToRun = target[platform] || target.windows;
 
+    if (platform === 'win32') {
+      const winTarget = target.windows;
+      console.log(`[Executor] Launching Windows App detached: ${winTarget} for ${target.name}`);
+      try {
+        const child = spawn('cmd.exe', ['/c', 'start', '', winTarget], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+        console.log(`[Executor] Windows App successfully spawned: ${target.name}`);
+        return {
+          success: true,
+          sandboxed: false,
+          name: target.name,
+          message: `Successfully launched ${target.name}.`
+        };
+      } catch (err) {
+        console.error(`[Executor] Error spawning ${target.name}:`, err.message);
+        return {
+          success: false,
+          sandboxed: false,
+          message: `Could not launch ${target.name}: ${err.message}`
+        };
+      }
+    }
+
+    let commandToRun = target[platform];
     if (!commandToRun) {
       return {
         success: false,
@@ -206,18 +247,15 @@ class Executor {
       };
     }
 
-    console.log(`[Executor] Executing whitelisted command: "${commandToRun}" for ${target.name}`);
     return new Promise((resolve) => {
       exec(commandToRun, (err) => {
         if (err) {
-          console.error(`[Executor] Error launching ${target.name}:`, err.message);
           return resolve({
             success: false,
             sandboxed: false,
             message: `Could not launch ${target.name}: ${err.message}`
           });
         }
-        console.log(`[Executor] Launch confirmed: ${target.name}`);
         resolve({
           success: true,
           sandboxed: false,

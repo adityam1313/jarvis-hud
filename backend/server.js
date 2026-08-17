@@ -26,7 +26,7 @@ let isInterrupted = false;
 function broadcast(data) {
   const message = JSON.stringify(data);
   clients.forEach((ws) => {
-    if (ws.readyState === 1) {
+    if (ws.readyState === 1) { // WebSocket.OPEN
       ws.send(message);
     }
   });
@@ -50,7 +50,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Guaranteed HTTP command execution endpoint (Dual-Channel reliability)
+// Guaranteed HTTP command execution endpoint
 app.post('/api/command', async (req, res) => {
   try {
     const userText = req.body?.text || '';
@@ -62,7 +62,7 @@ app.post('/api/command', async (req, res) => {
 
     broadcast({ type: 'status_change', data: { status: 'THINKING' } });
     const result = await aiEngine.processCommand(userText, latestTelemetry);
-    console.log(`[JARVIS HTTP API] Execution Result:`, result);
+    const msgId = 'resp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
 
     broadcast({
       type: 'nlu_parsed',
@@ -78,13 +78,14 @@ app.post('/api/command', async (req, res) => {
     broadcast({
       type: 'jarvis_response',
       data: {
+        id: msgId,
         text: result.spokenResponse,
         action: result.action,
         timestamp: new Date().toISOString()
       }
     });
 
-    res.json({ success: true, result });
+    res.json({ success: true, result, id: msgId });
   } catch (err) {
     console.error('[JARVIS HTTP API] Error executing command:', err.message);
     res.status(500).json({ error: err.message });
@@ -145,6 +146,8 @@ wss.on('connection', (ws) => {
             break;
           }
 
+          const msgId = 'resp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
           broadcast({
             type: 'nlu_parsed',
             data: {
@@ -159,6 +162,7 @@ wss.on('connection', (ws) => {
           broadcast({
             type: 'jarvis_response',
             data: {
+              id: msgId,
               text: result.spokenResponse,
               action: result.action,
               timestamp: new Date().toISOString()

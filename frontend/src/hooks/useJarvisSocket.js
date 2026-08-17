@@ -28,6 +28,7 @@ export default function useJarvisSocket() {
   const reconnectTimer = useRef(null);
   const recognitionRef = useRef(null);
   const isMicActiveRef = useRef(false);
+  const processedMsgIdsRef = useRef(new Set());
 
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
@@ -52,7 +53,7 @@ export default function useJarvisSocket() {
     }
   }, [sendMessage]);
 
-  // Text-To-Speech function
+  // Text-To-Speech function (Single Invocation Guaranteed)
   const speakText = useCallback((text) => {
     if (!('speechSynthesis' in window) || !text) return;
 
@@ -94,6 +95,26 @@ export default function useJarvisSocket() {
     window.speechSynthesis.speak(utterance);
   }, [sendMessage]);
 
+  // Handle incoming JARVIS response with deduplication
+  const handleIncomingJarvisResponse = useCallback((respData) => {
+    const msgId = respData.id || (respData.text + '_' + respData.timestamp);
+    if (processedMsgIdsRef.current.has(msgId)) {
+      console.log('[JARVIS HUD] Ignoring duplicate response:', msgId);
+      return;
+    }
+    processedMsgIdsRef.current.add(msgId);
+
+    const respText = respData.text;
+    setMessages(prev => [...prev, {
+      type: 'jarvis',
+      text: respText,
+      action: respData.action,
+      time: new Date(respData.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false })
+    }]);
+
+    speakText(respText);
+  }, [speakText]);
+
   // Connect WebSocket
   const connect = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
@@ -129,24 +150,22 @@ export default function useJarvisSocket() {
               break;
 
             case 'jarvis_response': {
-              const respText = msg.data.text;
-              setMessages(prev => [...prev, {
-                type: 'jarvis',
-                text: respText,
-                action: msg.data.action,
-                time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
-              }]);
-              speakText(respText);
+              handleIncomingJarvisResponse(msg.data);
               break;
             }
 
-            case 'system':
-              setMessages(prev => [...prev, {
-                type: 'system',
-                text: msg.data.message,
-                time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
-              }]);
+            case 'system': {
+              const sysId = 'sys_' + msg.data.message;
+              if (!processedMsgIdsRef.current.has(sysId)) {
+                processedMsgIdsRef.current.add(sysId);
+                setMessages(prev => [...prev, {
+                  type: 'system',
+                  text: msg.data.message,
+                  time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
+                }]);
+              }
               break;
+            }
 
             default:
               break;
@@ -167,10 +186,10 @@ export default function useJarvisSocket() {
         ws.close();
       };
     } catch (e) {
-      console.warn('[JARVIS HUD] WebSocket connect error, will retry...', e);
+      console.warn('[JARVIS HUD] WebSocket connect error, retrying...', e);
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
     }
-  }, [speakText]);
+  }, [handleIncomingJarvisResponse]);
 
   useEffect(() => {
     connect();
@@ -283,7 +302,7 @@ export default function useJarvisSocket() {
     }
   }, [isMicActive, sendMessage, triggerBargeIn]);
 
-  // Guaranteed Send Transcript Function (Dual-Channel WS + HTTP Fallback)
+  // Guaranteed Send Transcript Function
   const sendTranscript = useCallback(async (text) => {
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
@@ -300,7 +319,7 @@ export default function useJarvisSocket() {
     // 2. Try WebSocket channel first
     const sentWs = sendMessage('transcript', { text: cleanText });
 
-    // 3. If WebSocket is not ready, send via HTTP API fallback
+    // 3. Fallback to HTTP POST if WebSocket is not open
     if (!sentWs) {
       console.log('[JARVIS HUD] WebSocket not ready, routing via HTTP API fallback...');
       try {
@@ -312,27 +331,25 @@ export default function useJarvisSocket() {
         });
         const data = await res.json();
         if (data.success && data.result) {
-          const respText = data.result.spokenResponse;
           setNlu({
             intent: data.result.intent,
             slots: data.result.slots,
             confidence: data.result.confidence
           });
           setAssistantStatus('SPEAKING');
-          setMessages(prev => [...prev, {
-            type: 'jarvis',
-            text: respText,
+          handleIncomingJarvisResponse({
+            id: data.id,
+            text: data.result.spokenResponse,
             action: data.result.action,
-            time: new Date().toLocaleTimeString('en-US', { hour12: false })
-          }]);
-          speakText(respText);
+            timestamp: new Date().toISOString()
+          });
         }
       } catch (err) {
         console.error('[JARVIS HUD] HTTP fallback error:', err);
         setAssistantStatus('IDLE');
       }
     }
-  }, [sendMessage, triggerBargeIn, speakText]);
+  }, [sendMessage, triggerBargeIn, handleIncomingJarvisResponse]);
 
   return {
     isConnected,
