@@ -1,33 +1,77 @@
-import { useState, useEffect } from 'react';
-import { Zap, Activity } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Zap, Activity, Mic, Brain, Volume2 } from 'lucide-react';
 
-const STATUS_MESSAGES = [
+const STATUS_CONFIG = {
+  IDLE: {
+    label: 'STANDBY',
+    color: 'text-jarvis-cyan/60',
+    dotColor: 'bg-jarvis-cyan',
+    dotShadow: '0 0 10px #00f0ff, 0 0 20px rgba(0,240,255,0.3)',
+    waveOpacity: 0.15,
+    message: 'SYSTEM ACTIVE — AWAITING COMMAND',
+    icon: Zap,
+  },
+  LISTENING: {
+    label: 'LISTENING',
+    color: 'text-jarvis-green',
+    dotColor: 'bg-jarvis-green',
+    dotShadow: '0 0 10px #00ff88, 0 0 20px rgba(0,255,136,0.5)',
+    waveOpacity: 1,
+    message: 'VOICE INPUT DETECTED — PROCESSING',
+    icon: Mic,
+  },
+  THINKING: {
+    label: 'PROCESSING',
+    color: 'text-jarvis-amber',
+    dotColor: 'bg-jarvis-amber',
+    dotShadow: '0 0 10px #ffaa00, 0 0 20px rgba(255,170,0,0.5)',
+    waveOpacity: 0.5,
+    message: 'NEURAL PROCESSING — ANALYZING COMMAND',
+    icon: Brain,
+  },
+  SPEAKING: {
+    label: 'SPEAKING',
+    color: 'text-blue-400',
+    dotColor: 'bg-blue-400',
+    dotShadow: '0 0 10px #60a5fa, 0 0 20px rgba(96,165,250,0.5)',
+    waveOpacity: 0.85,
+    message: 'AUDIO OUTPUT — TRANSMITTING RESPONSE',
+    icon: Volume2,
+  },
+};
+
+const IDLE_MESSAGES = [
   'SYSTEM ACTIVE — AWAITING COMMAND',
   'NEURAL NETWORK ONLINE',
   'ALL SUBSYSTEMS NOMINAL',
   'QUANTUM CORE SYNCHRONIZED',
 ];
 
-export default function AICoreOrb() {
-  const [statusIdx, setStatusIdx] = useState(0);
-  const [isListening, setIsListening] = useState(false);
+export default function AICoreOrb({ status = 'IDLE', isConnected = false }) {
+  const [idleMsgIdx, setIdleMsgIdx] = useState(0);
 
   useEffect(() => {
+    if (status !== 'IDLE') return;
     const interval = setInterval(() => {
-      setStatusIdx((prev) => (prev + 1) % STATUS_MESSAGES.length);
+      setIdleMsgIdx((prev) => (prev + 1) % IDLE_MESSAGES.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [status]);
 
-  // Simulate toggling listening state
-  useEffect(() => {
-    const listenToggle = setInterval(() => {
-      setIsListening((prev) => !prev);
-    }, 8000);
-    return () => clearInterval(listenToggle);
-  }, []);
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.IDLE;
+  const StatusIcon = config.icon;
+  const displayMessage = status === 'IDLE' ? IDLE_MESSAGES[idleMsgIdx] : config.message;
 
+  // Memoize waveform durations so they don't re-randomize every render
   const waveformBars = 24;
+  const barDurations = useMemo(
+    () => Array.from({ length: waveformBars }, () => 0.8 + Math.random() * 0.8),
+    []
+  );
+  const barHeights = useMemo(
+    () => Array.from({ length: waveformBars }, () => 10 + Math.random() * 30),
+    []
+  );
 
   return (
     <div
@@ -37,19 +81,16 @@ export default function AICoreOrb() {
       {/* Status Indicator */}
       <div className="flex items-center gap-2 text-xs font-mono tracking-[0.2em] uppercase">
         <div
-          className={`w-2 h-2 rounded-full ${
-            isListening ? 'bg-jarvis-green' : 'bg-jarvis-cyan'
-          }`}
+          className={`w-2 h-2 rounded-full ${config.dotColor}`}
           style={{
-            boxShadow: isListening
-              ? '0 0 10px #00ff88, 0 0 20px rgba(0,255,136,0.3)'
-              : '0 0 10px #00f0ff, 0 0 20px rgba(0,240,255,0.3)',
+            boxShadow: config.dotShadow,
             animation: 'breathe 2s ease-in-out infinite',
           }}
         />
-        <span className={isListening ? 'text-jarvis-green' : 'text-jarvis-cyan/60'}>
-          {isListening ? 'LISTENING' : 'STANDBY'}
-        </span>
+        <span className={config.color}>{config.label}</span>
+        {!isConnected && (
+          <span className="text-red-400/60 ml-2 text-[0.6rem]">• BACKEND OFFLINE</span>
+        )}
       </div>
 
       {/* The Orb */}
@@ -71,7 +112,6 @@ export default function AICoreOrb() {
             strokeWidth="0.5"
             strokeDasharray="4 8"
           />
-          {/* Tick marks */}
           {Array.from({ length: 36 }).map((_, i) => {
             const angle = (i * 10 * Math.PI) / 180;
             const r = 110;
@@ -113,17 +153,32 @@ export default function AICoreOrb() {
           />
         </svg>
 
-        {/* Core orb */}
-        <div className="orb-core" />
+        {/* Core orb — changes glow intensity based on status */}
+        <div
+          className="orb-core"
+          style={{
+            boxShadow:
+              status === 'LISTENING'
+                ? '0 0 80px rgba(0,255,136,0.4), 0 0 160px rgba(0,255,136,0.15), inset 0 0 60px rgba(0,255,136,0.15)'
+                : status === 'THINKING'
+                ? '0 0 80px rgba(255,170,0,0.3), 0 0 160px rgba(255,170,0,0.1), inset 0 0 60px rgba(255,170,0,0.1)'
+                : status === 'SPEAKING'
+                ? '0 0 80px rgba(96,165,250,0.4), 0 0 160px rgba(96,165,250,0.15), inset 0 0 60px rgba(96,165,250,0.15)'
+                : undefined,
+          }}
+        />
 
-        {/* Center icon */}
+        {/* Center icon — changes based on status */}
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <Zap
+          <StatusIcon
             className="text-jarvis-cyan"
             size={32}
             style={{
               filter: 'drop-shadow(0 0 10px rgba(0,240,255,0.6))',
-              animation: 'breathe 4s ease-in-out infinite',
+              animation:
+                status === 'THINKING'
+                  ? 'breathe 1.5s ease-in-out infinite'
+                  : 'breathe 4s ease-in-out infinite',
             }}
           />
         </div>
@@ -159,9 +214,9 @@ export default function AICoreOrb() {
             className="waveform-bar"
             style={{
               animationDelay: `${i * 0.05}s`,
-              animationDuration: `${0.8 + Math.random() * 0.8}s`,
-              height: `${10 + Math.random() * 30}px`,
-              opacity: isListening ? 1 : 0.3,
+              animationDuration: `${barDurations[i]}s`,
+              height: `${barHeights[i]}px`,
+              opacity: config.waveOpacity,
               transition: 'opacity 0.5s ease',
             }}
           />
@@ -176,12 +231,12 @@ export default function AICoreOrb() {
             textShadow: '0 0 10px rgba(0,240,255,0.5), 0 0 20px rgba(0,240,255,0.2)',
           }}
         >
-          {STATUS_MESSAGES[statusIdx]}
+          {displayMessage}
         </h2>
         <div className="flex items-center justify-center gap-4 text-xs text-white/30 font-mono">
           <span className="flex items-center gap-1">
-            <Activity size={10} className="text-jarvis-green" />
-            UPLINK STABLE
+            <Activity size={10} className={isConnected ? 'text-jarvis-green' : 'text-red-400'} />
+            {isConnected ? 'UPLINK STABLE' : 'UPLINK OFFLINE'}
           </span>
           <span>•</span>
           <span>v4.7.1-OMEGA</span>

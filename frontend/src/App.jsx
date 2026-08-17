@@ -4,6 +4,7 @@ import AICoreOrb from './components/AICoreOrb';
 import CommandTerminal from './components/CommandTerminal';
 import CalendarWidget from './components/CalendarWidget';
 import SystemDiagnostics from './components/SystemDiagnostics';
+import useJarvisSocket from './hooks/useJarvisSocket';
 
 function getFormattedTime() {
   const now = new Date();
@@ -25,7 +26,7 @@ function getFormattedDate() {
   });
 }
 
-function Header() {
+function Header({ isConnected, latency }) {
   const [time, setTime] = useState(getFormattedTime());
   const [date] = useState(getFormattedDate());
 
@@ -58,16 +59,18 @@ function Header() {
           </div>
           <div className="hidden sm:flex items-center gap-1.5 text-[0.6rem] font-mono text-white/30">
             <div
-              className="w-1.5 h-1.5 rounded-full bg-jarvis-green"
-              style={{ boxShadow: '0 0 6px #00ff88' }}
+              className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-jarvis-green' : 'bg-red-500'}`}
+              style={{ boxShadow: isConnected ? '0 0 6px #00ff88' : '0 0 6px #ff3355' }}
             />
-            <span className="text-jarvis-green/80">ONLINE</span>
+            <span className={isConnected ? 'text-jarvis-green/80' : 'text-red-400/80'}>
+              {isConnected ? 'ONLINE' : 'OFFLINE'}
+            </span>
             <span className="mx-1">|</span>
             <Shield size={10} className="text-jarvis-cyan/50" />
             <span>ENCRYPTED</span>
             <span className="mx-1">|</span>
             <Signal size={10} className="text-jarvis-cyan/50" />
-            <span>LATENCY: 12ms</span>
+            <span>LATENCY: {Math.round(latency)}ms</span>
           </div>
         </div>
 
@@ -102,6 +105,16 @@ function Header() {
 export default function App() {
   const [loaded, setLoaded] = useState(false);
 
+  // Central WebSocket hook — single source of truth for all live data
+  const {
+    isConnected,
+    telemetry,
+    nlu,
+    assistantStatus,
+    messages,
+    sendTranscript,
+  } = useJarvisSocket();
+
   useEffect(() => {
     const timer = setTimeout(() => setLoaded(true), 100);
     return () => clearTimeout(timer);
@@ -114,7 +127,7 @@ export default function App() {
       <div className="scanline-overlay" />
 
       {/* Header */}
-      <Header />
+      <Header isConnected={isConnected} latency={telemetry.latency} />
 
       {/* Main dashboard grid */}
       <main
@@ -125,17 +138,21 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 min-h-[calc(100vh-80px)]">
           {/* ═══ LEFT COLUMN: Command Terminal ═══ */}
           <div className="lg:col-span-3 flex flex-col min-h-[400px] lg:min-h-0">
-            <CommandTerminal />
+            <CommandTerminal
+              messages={messages}
+              sendTranscript={sendTranscript}
+              isConnected={isConnected}
+            />
           </div>
 
           {/* ═══ CENTER COLUMN: AI Core + Diagnostics ═══ */}
           <div className="lg:col-span-5 flex flex-col gap-4 lg:gap-5">
             {/* Central AI Core */}
             <div className="glass-panel p-4 lg:p-6 flex-shrink-0">
-              <AICoreOrb />
+              <AICoreOrb status={assistantStatus} isConnected={isConnected} />
             </div>
 
-            {/* System Diagnostics - below center on larger screens */}
+            {/* System Diagnostics - below center */}
             <div
               className="flex-1 min-h-[200px]"
               style={{
@@ -144,7 +161,11 @@ export default function App() {
                 opacity: 0,
               }}
             >
-              <SystemDiagnostics />
+              <SystemDiagnostics
+                telemetry={telemetry}
+                nlu={nlu}
+                isConnected={isConnected}
+              />
             </div>
           </div>
 
@@ -167,7 +188,9 @@ export default function App() {
       <footer className="relative z-10 border-t border-cyan-500/5 px-6 py-2">
         <div className="max-w-[1920px] mx-auto flex items-center justify-between text-[0.55rem] font-mono text-white/15">
           <span>JARVIS CORE v4.7.1 | QUANTUM NEURAL ENGINE</span>
-          <span>SESSION: 0x7F3A9E2D | CLEARANCE: OMEGA-7</span>
+          <span>
+            BACKEND: {isConnected ? 'CONNECTED' : 'DISCONNECTED'} | SESSION: 0x7F3A9E2D
+          </span>
           <span>© 2026 STARK INDUSTRIES — CLASSIFIED</span>
         </div>
       </footer>

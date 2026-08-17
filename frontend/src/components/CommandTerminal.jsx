@@ -2,65 +2,24 @@ import { useState, useEffect, useRef } from 'react';
 import { Terminal, Send, ChevronRight } from 'lucide-react';
 
 const INITIAL_LOGS = [
-  { type: 'system', text: '— SESSION INITIALIZED —', time: '11:00:01' },
-  { type: 'system', text: 'Secure channel established. Encryption: AES-256-GCM', time: '11:00:01' },
-  { type: 'jarvis', text: 'Good morning, Aditya. All systems are online and operational. How may I assist you today?', time: '11:00:02' },
-  { type: 'user', text: 'What\'s the weather like today?', time: '11:05:12' },
-  { type: 'jarvis', text: 'Currently 28°C in Mumbai with partly cloudy skies. Humidity at 72%. No precipitation expected until evening. Confidence: 98.7%', time: '11:05:13' },
-  { type: 'user', text: 'Schedule a reminder for the team standup', time: '11:10:45' },
-  { type: 'jarvis', text: 'Reminder set for 14:30 — "Team Standup - Project Nexus". I\'ve also synced it with your calendar module. Confidence: 99.2%', time: '11:10:46' },
-  { type: 'user', text: 'Play some focus music', time: '11:15:30' },
-  { type: 'jarvis', text: 'Loading "Synthetic Dawn" by Neural Harmonics into the Audio Subsystem. Ambient focus mode engaged. Confidence: 97.5%', time: '11:15:31' },
-  { type: 'system', text: '— AUDIO SUBSYSTEM ACTIVE —', time: '11:15:31' },
-  { type: 'user', text: 'Run diagnostics on all subsystems', time: '11:20:00' },
-  { type: 'jarvis', text: 'Running full diagnostic sweep... CPU: 34% | Memory: 62% | Network Latency: 12ms | All modules nominal. No anomalies detected.', time: '11:20:02' },
+  { type: 'system', text: '— SESSION INITIALIZED —', time: '00:00:00' },
+  { type: 'system', text: 'Awaiting backend WebSocket connection...', time: '00:00:00' },
 ];
 
-const JARVIS_RESPONSES = [
-  'Understood. Processing your request now. Confidence: 97.3%',
-  'I\'ve completed the analysis. All parameters are within expected range.',
-  'Affirmative. I\'ve updated the relevant subsystems accordingly.',
-  'That request has been queued for immediate execution.',
-  'Scanning databases... I\'ve found 3 relevant results for your query.',
-  'The task has been completed successfully. Would you like a detailed report?',
-  'I\'ve cross-referenced that against our knowledge base. Here\'s what I found.',
-  'Running simulation now. Estimated completion: 4.2 seconds.',
-  'Noted. I\'ve added that to your priority queue.',
-  'All subsystems confirm the update has been applied globally.',
-];
-
-function getTimestamp() {
-  const now = new Date();
-  return now.toTimeString().slice(0, 8);
-}
-
-export default function CommandTerminal() {
-  const [logs, setLogs] = useState(INITIAL_LOGS);
+export default function CommandTerminal({ messages = [], sendTranscript, isConnected = false }) {
   const [input, setInput] = useState('');
   const logEndRef = useRef(null);
 
+  const allMessages = [...INITIAL_LOGS, ...messages];
+
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [messages]);
 
   const handleSend = () => {
-    if (!input.trim()) return;
-
-    const userLog = { type: 'user', text: input.trim(), time: getTimestamp() };
-    setLogs((prev) => [...prev, userLog]);
+    if (!input.trim() || !sendTranscript) return;
+    sendTranscript(input.trim());
     setInput('');
-
-    // Simulate JARVIS response after a brief delay
-    setTimeout(() => {
-      const responseText =
-        JARVIS_RESPONSES[Math.floor(Math.random() * JARVIS_RESPONSES.length)];
-      const jarvisLog = {
-        type: 'jarvis',
-        text: responseText,
-        time: getTimestamp(),
-      };
-      setLogs((prev) => [...prev, jarvisLog]);
-    }, 800 + Math.random() * 600);
   };
 
   const handleKeyDown = (e) => {
@@ -79,14 +38,19 @@ export default function CommandTerminal() {
           Command Terminal
         </h3>
         <div className="ml-auto flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-jarvis-green" style={{ boxShadow: '0 0 6px #00ff88' }} />
-          <span className="text-[0.6rem] font-mono text-jarvis-green/70">LIVE</span>
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-jarvis-green' : 'bg-red-500'}`}
+            style={{ boxShadow: isConnected ? '0 0 6px #00ff88' : '0 0 6px #ff3355' }}
+          />
+          <span className={`text-[0.6rem] font-mono ${isConnected ? 'text-jarvis-green/70' : 'text-red-400/70'}`}>
+            {isConnected ? 'LIVE' : 'OFFLINE'}
+          </span>
         </div>
       </div>
 
       {/* Log area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 terminal-log min-h-0">
-        {logs.map((log, i) => (
+        {allMessages.map((log, i) => (
           <div
             key={i}
             className={`flex flex-col ${
@@ -143,11 +107,16 @@ export default function CommandTerminal() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter command..."
-              className="hud-input pl-8"
+              placeholder={isConnected ? 'Enter command...' : 'Connecting to backend...'}
+              disabled={!isConnected}
+              className="hud-input pl-8 disabled:opacity-40"
             />
           </div>
-          <button onClick={handleSend} className="glow-btn flex items-center gap-2">
+          <button
+            onClick={handleSend}
+            disabled={!isConnected || !input.trim()}
+            className="glow-btn flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             <Send size={14} />
             Execute
           </button>
