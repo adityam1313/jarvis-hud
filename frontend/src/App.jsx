@@ -112,7 +112,13 @@ export default function App() {
     nlu,
     assistantStatus,
     messages,
+    isMicActive,
+    interimTranscript,
+    isSpeaking,
+    toggleMic,
+    triggerBargeIn,
     sendTranscript,
+    voiceSupported
   } = useJarvisSocket();
 
   useEffect(() => {
@@ -142,6 +148,8 @@ export default function App() {
               messages={messages}
               sendTranscript={sendTranscript}
               isConnected={isConnected}
+              isMicActive={isMicActive}
+              toggleMic={toggleMic}
             />
           </div>
 
@@ -149,7 +157,16 @@ export default function App() {
           <div className="lg:col-span-5 flex flex-col gap-4 lg:gap-5">
             {/* Central AI Core */}
             <div className="glass-panel p-4 lg:p-6 flex-shrink-0">
-              <AICoreOrb status={assistantStatus} isConnected={isConnected} />
+              <AICoreOrb
+                status={assistantStatus}
+                isConnected={isConnected}
+                isMicActive={isMicActive}
+                interimTranscript={interimTranscript}
+                isSpeaking={isSpeaking}
+                toggleMic={toggleMic}
+                triggerBargeIn={triggerBargeIn}
+                voiceSupported={voiceSupported}
+              />
             </div>
 
             {/* System Diagnostics - below center */}
@@ -189,7 +206,7 @@ export default function App() {
         <div className="max-w-[1920px] mx-auto flex items-center justify-between text-[0.55rem] font-mono text-white/15">
           <span>JARVIS CORE v4.7.1 | QUANTUM NEURAL ENGINE</span>
           <span>
-            BACKEND: {isConnected ? 'CONNECTED' : 'DISCONNECTED'} | SESSION: 0x7F3A9E2D
+            BACKEND: {isConnected ? 'CONNECTED' : 'DISCONNECTED'} | VOICE: {voiceSupported ? 'ACTIVE' : 'UNAVAILABLE'} | CLEARANCE: OMEGA-7
           </span>
           <span>© 2026 STARK INDUSTRIES — CLASSIFIED</span>
         </div>

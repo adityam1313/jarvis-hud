@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Send, ChevronRight } from 'lucide-react';
+import { Terminal, Send, ChevronRight, Mic, MicOff, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 const INITIAL_LOGS = [
   { type: 'system', text: '— SESSION INITIALIZED —', time: '00:00:00' },
-  { type: 'system', text: 'Awaiting backend WebSocket connection...', time: '00:00:00' },
+  { type: 'system', text: 'Connecting to J.A.R.V.I.S. Core...', time: '00:00:00' },
 ];
 
-export default function CommandTerminal({ messages = [], sendTranscript, isConnected = false }) {
+export default function CommandTerminal({
+  messages = [],
+  sendTranscript,
+  isConnected = false,
+  isMicActive = false,
+  toggleMic
+}) {
   const [input, setInput] = useState('');
   const logEndRef = useRef(null);
 
@@ -35,16 +41,31 @@ export default function CommandTerminal({ messages = [], sendTranscript, isConne
       <div className="flex items-center gap-2 p-4 border-b border-cyan-500/10">
         <Terminal size={16} className="text-jarvis-cyan" />
         <h3 className="text-xs font-mono tracking-[0.2em] text-jarvis-cyan uppercase">
-          Command Terminal
+          Live Command Terminal
         </h3>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-jarvis-green' : 'bg-red-500'}`}
-            style={{ boxShadow: isConnected ? '0 0 6px #00ff88' : '0 0 6px #ff3355' }}
-          />
-          <span className={`text-[0.6rem] font-mono ${isConnected ? 'text-jarvis-green/70' : 'text-red-400/70'}`}>
-            {isConnected ? 'LIVE' : 'OFFLINE'}
-          </span>
+        <div className="ml-auto flex items-center gap-2">
+          {toggleMic && (
+            <button
+              onClick={toggleMic}
+              title="Toggle Voice Input"
+              className={`p-1 rounded-md transition-all ${
+                isMicActive
+                  ? 'bg-jarvis-green/20 text-jarvis-green shadow-[0_0_8px_#00ff88]'
+                  : 'text-cyan-400/60 hover:text-cyan-300 hover:bg-cyan-500/10'
+              }`}
+            >
+              {isMicActive ? <Mic size={14} className="animate-pulse" /> : <MicOff size={14} />}
+            </button>
+          )}
+          <div className="flex items-center gap-1.5 pl-1 border-l border-cyan-500/20">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-jarvis-green' : 'bg-red-500'}`}
+              style={{ boxShadow: isConnected ? '0 0 6px #00ff88' : '0 0 6px #ff3355' }}
+            />
+            <span className={`text-[0.6rem] font-mono ${isConnected ? 'text-jarvis-green/70' : 'text-red-400/70'}`}>
+              {isConnected ? 'ONLINE' : 'OFFLINE'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -65,27 +86,45 @@ export default function CommandTerminal({ messages = [], sendTranscript, isConne
             }}
           >
             {log.type === 'system' ? (
-              <div className="log-system py-1">
+              <div className="log-system py-1 text-center">
                 <span className="text-white/20">{log.time}</span> {log.text}
               </div>
             ) : (
               <>
                 <div
                   className={`text-[0.6rem] mb-0.5 font-mono tracking-wider ${
-                    log.type === 'user' ? 'text-jarvis-amber/50' : 'text-jarvis-cyan/50'
+                    log.type === 'user' ? 'text-jarvis-amber/70' : 'text-jarvis-cyan/70'
                   }`}
                 >
                   <span className="text-white/20 mr-2">{log.time}</span>
                   {log.type === 'user' ? '[USER]' : '[JARVIS]'}
                 </div>
+
                 <div
-                  className={`max-w-[85%] px-3 py-2 rounded-lg text-[0.8rem] leading-relaxed ${
+                  className={`max-w-[88%] px-3.5 py-2.5 rounded-lg text-[0.8rem] leading-relaxed shadow-lg ${
                     log.type === 'user'
-                      ? 'bg-jarvis-amber/10 border border-jarvis-amber/20 text-jarvis-amber/90 rounded-tr-none'
-                      : 'bg-jarvis-cyan/5 border border-jarvis-cyan/15 text-jarvis-cyan/90 rounded-tl-none'
+                      ? 'bg-jarvis-amber/10 border border-jarvis-amber/25 text-jarvis-amber/95 rounded-tr-none'
+                      : 'bg-jarvis-cyan/10 border border-jarvis-cyan/25 text-jarvis-cyan/95 rounded-tl-none'
                   }`}
                 >
-                  {log.text}
+                  <div>{log.text}</div>
+
+                  {/* Action execution badges */}
+                  {log.action && log.action.result && (
+                    <div className="mt-2 pt-2 border-t border-cyan-500/15 flex items-center gap-1.5 text-[0.65rem] font-mono">
+                      {log.action.result.sandboxed ? (
+                        <span className="text-amber-400 flex items-center gap-1">
+                          <ShieldAlert size={11} />
+                          [SECURITY: SANDBOXED]
+                        </span>
+                      ) : log.action.result.success ? (
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 size={11} />
+                          [EXECUTED: {log.action.result.name || log.action.target || 'Success'}]
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -107,18 +146,18 @@ export default function CommandTerminal({ messages = [], sendTranscript, isConne
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isConnected ? 'Enter command...' : 'Connecting to backend...'}
+              placeholder={isConnected ? 'Say or type command (e.g. "Open Calculator")...' : 'Connecting to backend...'}
               disabled={!isConnected}
-              className="hud-input pl-8 disabled:opacity-40"
+              className="hud-input pl-8 disabled:opacity-40 text-xs"
             />
           </div>
           <button
             onClick={handleSend}
             disabled={!isConnected || !input.trim()}
-            className="glow-btn flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="glow-btn flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <Send size={14} />
-            Execute
+            <Send size={13} />
+            <span>Send</span>
           </button>
         </div>
       </div>
