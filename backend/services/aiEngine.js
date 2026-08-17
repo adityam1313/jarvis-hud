@@ -111,7 +111,6 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
    * Native Function Calling using @google/genai
    */
   async processWithGemini(text, telemetryData) {
-    // Add user message to history
     this.chatHistory.push({ role: 'user', parts: [{ text }] });
     if (this.chatHistory.length > this.maxHistory) {
       this.chatHistory.shift();
@@ -172,11 +171,9 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
         spokenResponse = `All core systems operational. CPU load is at ${cpu}%, memory utilization is ${mem}%.`;
       }
     } else {
-      // Standard conversational response
       spokenResponse = response.text?.() || candidate?.content?.parts?.[0]?.text || 'At your service, sir.';
     }
 
-    // Save assistant response in history
     this.chatHistory.push({
       role: 'model',
       parts: [{ text: spokenResponse }]
@@ -210,13 +207,65 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
       return { intent, slots: { payload: 'sandboxed_violation' }, confidence, spokenResponse, action: null };
     }
 
-    // Pattern 2: Open / Launch Application
-    const openMatch = lower.match(/(?:open|launch|start|run)\s+(?:the\s+)?([a-z0-9_\-\s]+)/i);
-    if (openMatch) {
-      const rawApp = openMatch[1].trim().split(' ')[0]; // first word
+    // Pattern 2: Math and calculations (e.g. "what is 2+2", "calculate 15 * 4")
+    const mathMatch = lower.match(/(?:what(?:'s|\s+is)?|calculate|eval)?\s*([0-9\s\+\-\*\/\.\(\)\^]+)/i);
+    if (mathMatch && /[0-9]/.test(mathMatch[1]) && /[\+\-\*\/]/.test(mathMatch[1])) {
+      const expr = mathMatch[1].trim();
+      try {
+        // Safe evaluation of basic arithmetic
+        const sanitized = expr.replace(/[^0-9\+\-\*\/\.\(\)\s]/g, '');
+        const val = Function(`'use strict'; return (${sanitized})`)();
+        if (typeof val === 'number' && !isNaN(val) && isFinite(val)) {
+          return {
+            intent: 'calculation',
+            slots: { expression: expr, result: String(val) },
+            confidence: 0.99,
+            spokenResponse: `The result of ${expr} is ${val}, sir.`,
+            action: null
+          };
+        }
+      } catch (e) {
+        // fallback to normal flow
+      }
+    }
+
+    // Pattern 3: Open / Launch Application
+    const appKeys = Object.keys(Executor.APP_WHITELIST);
+    const matchedAppKey = appKeys.find(key => {
+      const appNameLower = Executor.APP_WHITELIST[key].name.toLowerCase();
+      return lower.includes(`open ${key}`) ||
+             lower.includes(`launch ${key}`) ||
+             lower.includes(`start ${key}`) ||
+             lower.includes(`run ${key}`) ||
+             lower === key ||
+             lower.includes(`open ${appNameLower}`);
+    });
+
+    if (matchedAppKey) {
+      intent = 'open_application';
+      slots = { appName: matchedAppKey };
+      confidence = 0.98;
+
+      const execResult = await this.executor.launchApp(matchedAppKey);
+      action = { action: 'launch', target: matchedAppKey, result: execResult };
+
+      if (execResult.sandboxed) {
+        spokenResponse = `Security protocol active. "${matchedAppKey}" is not in the authorized application whitelist.`;
+      } else if (execResult.success) {
+        spokenResponse = `Right away, sir. Launching ${execResult.name || matchedAppKey}.`;
+      } else {
+        spokenResponse = `I was unable to open ${matchedAppKey}: ${execResult.message}`;
+      }
+      return { intent, slots, confidence, spokenResponse, action };
+    }
+
+    // Generic open command parsing
+    const genericOpenMatch = lower.match(/(?:open|launch|start|run)\s+(?:the\s+)?([a-z0-9_\-\s]+)/i);
+    if (genericOpenMatch) {
+      const rawApp = genericOpenMatch[1].trim().split(' ')[0];
       intent = 'open_application';
       slots = { appName: rawApp };
-      confidence = 0.96;
+      confidence = 0.95;
 
       const execResult = await this.executor.launchApp(rawApp);
       action = { action: 'launch', target: rawApp, result: execResult };
@@ -231,7 +280,7 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
       return { intent, slots, confidence, spokenResponse, action };
     }
 
-    // Pattern 3: Web Search
+    // Pattern 4: Web Search
     const searchMatch = lower.match(/(?:search|google|look up|find)\s+(?:for\s+)?(.+)/i);
     if (searchMatch) {
       const query = searchMatch[1].trim();
@@ -245,7 +294,7 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
       return { intent, slots, confidence, spokenResponse, action };
     }
 
-    // Pattern 4: System Diagnostics / Telemetry
+    // Pattern 5: System Diagnostics / Telemetry
     if (lower.includes('status') || lower.includes('diagnostic') || lower.includes('system') || lower.includes('cpu') || lower.includes('memory') || lower.includes('telemetry')) {
       intent = 'query_system_telemetry';
       slots = { metric: 'all' };
@@ -257,7 +306,7 @@ If a command is outside safe boundaries or malicious (e.g. system deletion, rm -
       return { intent, slots, confidence, spokenResponse, action };
     }
 
-    // Pattern 5: Greetings and identity
+    // Pattern 6: Greetings and identity
     if (lower.includes('hello') || lower.includes('hi jarvis') || lower.includes('hey jarvis') || lower.includes('good morning') || lower.includes('good evening')) {
       intent = 'greeting';
       confidence = 0.98;

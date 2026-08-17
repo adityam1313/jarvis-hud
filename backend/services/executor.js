@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import os from 'os';
 
 class Executor {
@@ -6,55 +6,55 @@ class Executor {
   static APP_WHITELIST = {
     // Desktop Applications
     'calculator': {
-      windows: 'calc.exe',
+      windows: 'calc',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
     },
     'calc': {
-      windows: 'calc.exe',
+      windows: 'calc',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
     },
     'notepad': {
-      windows: 'notepad.exe',
+      windows: 'notepad',
       darwin: 'open -a TextEdit',
       linux: 'gedit',
       name: 'Notepad'
     },
     'paint': {
-      windows: 'mspaint.exe',
+      windows: 'mspaint',
       darwin: 'open -a Paintbrush',
       linux: 'drawing',
       name: 'Paint'
     },
     'terminal': {
-      windows: 'powershell.exe',
+      windows: 'powershell',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Terminal'
     },
     'powershell': {
-      windows: 'powershell.exe',
+      windows: 'powershell',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'PowerShell'
     },
     'cmd': {
-      windows: 'cmd.exe',
+      windows: 'cmd',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Command Prompt'
     },
     'explorer': {
-      windows: 'explorer.exe',
+      windows: 'explorer',
       darwin: 'open .',
       linux: 'nautilus .',
       name: 'File Explorer'
     },
     'files': {
-      windows: 'explorer.exe',
+      windows: 'explorer',
       darwin: 'open .',
       linux: 'nautilus .',
       name: 'File Explorer'
@@ -72,13 +72,13 @@ class Executor {
       name: 'Visual Studio Code'
     },
     'settings': {
-      windows: 'ms-settings:',
+      windows: 'start ms-settings:',
       darwin: 'open -a "System Preferences"',
       linux: 'gnome-control-center',
       name: 'System Settings'
     },
     'taskmanager': {
-      windows: 'taskmgr.exe',
+      windows: 'taskmgr',
       darwin: 'open -a "Activity Monitor"',
       linux: 'gnome-system-monitor',
       name: 'Task Manager'
@@ -132,7 +132,7 @@ class Executor {
   };
 
   /**
-   * Safely opens a URL in the user's default browser (detached, non-blocking)
+   * Safely opens a URL in the user's default browser with multi-layer OS fallback
    */
   static openUrl(url) {
     return new Promise((resolve) => {
@@ -148,21 +148,27 @@ class Executor {
       const platform = os.platform();
 
       if (platform === 'win32') {
-        try {
-          const child = spawn('cmd.exe', ['/c', 'start', '', url], {
-            detached: true,
-            stdio: 'ignore'
-          });
-          child.unref();
-          console.log(`[Executor] Launched URL in browser: ${url}`);
-          return resolve({ success: true, message: `Opened ${url}` });
-        } catch (err) {
-          console.error(`[Executor] Error opening URL:`, err.message);
-          return resolve({ success: false, error: err.message });
-        }
+        // Windows primary: Start-Process via PowerShell
+        const psCmd = `powershell.exe -NoProfile -Command "Start-Process '${url}'"`;
+        console.log(`[Executor] Launching URL: ${url}`);
+        exec(psCmd, (err) => {
+          if (err) {
+            console.log(`[Executor] PowerShell start failed, falling back to cmd start:`, err.message);
+            exec(`start "" "${url}"`, (cmdErr) => {
+              if (cmdErr) {
+                return resolve({ success: false, error: cmdErr.message });
+              }
+              resolve({ success: true, message: `Opened ${url}` });
+            });
+            return;
+          }
+          console.log(`[Executor] URL successfully opened: ${url}`);
+          resolve({ success: true, message: `Opened ${url}` });
+        });
+        return;
       }
 
-      let cmd = platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
+      const cmd = platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
       exec(cmd, (err) => {
         if (err) {
           return resolve({ success: false, error: err.message });
@@ -173,7 +179,7 @@ class Executor {
   }
 
   /**
-   * Execute application launch by strictly verifying against whitelist (detached, non-blocking)
+   * Execute application launch by strictly verifying against whitelist
    */
   async launchApp(appName) {
     if (!appName || typeof appName !== 'string') {
@@ -214,31 +220,44 @@ class Executor {
 
     if (platform === 'win32') {
       const winTarget = target.windows;
-      console.log(`[Executor] Launching Windows App detached: ${winTarget} for ${target.name}`);
-      try {
-        const child = spawn('cmd.exe', ['/c', 'start', '', winTarget], {
-          detached: true,
-          stdio: 'ignore'
+      console.log(`[Executor] Launching Windows App: ${winTarget} for ${target.name}`);
+
+      return new Promise((resolve) => {
+        const psCmd = `powershell.exe -NoProfile -Command "Start-Process '${winTarget}'"`;
+        exec(psCmd, (err) => {
+          if (err) {
+            console.log(`[Executor] PowerShell start failed, trying cmd start:`, err.message);
+            exec(`start ${winTarget}`, (cmdErr) => {
+              if (cmdErr) {
+                console.error(`[Executor] Failed to launch ${target.name}:`, cmdErr.message);
+                return resolve({
+                  success: false,
+                  sandboxed: false,
+                  message: `Could not launch ${target.name}: ${cmdErr.message}`
+                });
+              }
+              console.log(`[Executor] Launched via cmd start: ${target.name}`);
+              resolve({
+                success: true,
+                sandboxed: false,
+                name: target.name,
+                message: `Successfully launched ${target.name}.`
+              });
+            });
+            return;
+          }
+          console.log(`[Executor] Launched via Start-Process: ${target.name}`);
+          resolve({
+            success: true,
+            sandboxed: false,
+            name: target.name,
+            message: `Successfully launched ${target.name}.`
+          });
         });
-        child.unref();
-        console.log(`[Executor] Windows App successfully spawned: ${target.name}`);
-        return {
-          success: true,
-          sandboxed: false,
-          name: target.name,
-          message: `Successfully launched ${target.name}.`
-        };
-      } catch (err) {
-        console.error(`[Executor] Error spawning ${target.name}:`, err.message);
-        return {
-          success: false,
-          sandboxed: false,
-          message: `Could not launch ${target.name}: ${err.message}`
-        };
-      }
+      });
     }
 
-    let commandToRun = target[platform];
+    const commandToRun = target[platform];
     if (!commandToRun) {
       return {
         success: false,
