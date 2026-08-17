@@ -1,7 +1,7 @@
 const { app, BrowserWindow, session, shell, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { fork, spawn, exec } = require('child_process');
 
 // Completely disable disk cache locks and GPU conflicts to eliminate Windows cache error
 app.commandLine.appendSwitch('disable-http-cache');
@@ -11,13 +11,28 @@ app.commandLine.appendSwitch('no-sandbox');
 
 // Isolate user data to unique runtime folder
 try {
-  const uniqueDataDir = path.join(os.tmpdir(), 'jarvis-hud-session-' + process.pid);
+  const uniqueDataDir = path.join(os.tmpdir(), 'jarvis-hud-session-' + Date.now());
   app.setPath('userData', uniqueDataDir);
 } catch (e) {
   // ignore
 }
 
 let mainWindow;
+let backendProcess = null;
+
+function startBackend() {
+  const backendPath = path.join(__dirname, '..', 'backend', 'server.js');
+  console.log('[Electron] Ensuring backend server is running from:', backendPath);
+  try {
+    backendProcess = fork(backendPath, [], {
+      cwd: path.join(__dirname, '..', 'backend'),
+      stdio: 'inherit'
+    });
+    backendProcess.on('error', (err) => console.error('[Electron] Backend error:', err));
+  } catch (err) {
+    console.error('[Electron] Failed to start backend:', err);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -41,11 +56,11 @@ function createWindow() {
     callback(true);
   });
 
-  // Load Vite dev server or built dist/index.html
-  const devUrl = 'http://localhost:5173';
-  mainWindow.loadURL(devUrl).catch(() => {
-    console.log('[Electron] Loading static dist/index.html...');
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  // Always load the fast built production dist/index.html first, fallback to dev server
+  const distPath = path.join(__dirname, 'dist', 'index.html');
+  mainWindow.loadFile(distPath).catch(() => {
+    console.log('[Electron] Fallback loading http://localhost:5173...');
+    mainWindow.loadURL('http://localhost:5173');
   });
 
   mainWindow.on('closed', () => {
@@ -53,12 +68,53 @@ function createWindow() {
   });
 }
 
+// IPC handler to guarantee external URLs open directly on the user's desktop browser
+ipcMain.handle('open-url', async (event, url) => {
+  console.log('[Electron IPC] Opening external URL:', url);
+  try {
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (err) {
+    console.error('[Electron IPC] Failed to open URL:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// IPC handler to guarantee native desktop apps open directly in front of the user
+ipcMain.handle('launch-app', async (event, appTarget) => {
+  console.log('[Electron IPC] Launching native app:', appTarget);
+  try {
+    if (process.platform === 'win32') {
+      const ps = spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process '${appTarget}'`], {
+        stdio: 'ignore',
+        detached: true
+      });
+      ps.unref();
+      return { success: true };
+    }
+    exec(`open "${appTarget}"`, (err) => {});
+    return { success: true };
+  } catch (err) {
+    console.error('[Electron IPC] Failed to launch app:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 app.whenReady().then(() => {
+  startBackend();
   createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on('will-quit', () => {
+  if (backendProcess) {
+    try {
+      backendProcess.kill();
+    } catch (e) {}
+  }
 });
 
 app.on('window-all-closed', () => {

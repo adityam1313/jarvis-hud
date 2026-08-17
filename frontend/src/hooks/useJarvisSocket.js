@@ -95,7 +95,7 @@ export default function useJarvisSocket() {
     window.speechSynthesis.speak(utterance);
   }, [sendMessage]);
 
-  // Handle incoming JARVIS response with deduplication and client-side execution helper
+  // Handle incoming JARVIS response with deduplication and dual execution trigger
   const handleIncomingJarvisResponse = useCallback((respData) => {
     const msgId = respData.id || (respData.text + '_' + respData.timestamp);
     if (processedMsgIdsRef.current.has(msgId)) {
@@ -111,6 +111,41 @@ export default function useJarvisSocket() {
       action: respData.action,
       time: new Date(respData.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false })
     }]);
+
+    // Client-side Electron execution trigger to guarantee instant launch
+    if (respData.action) {
+      const act = respData.action;
+      try {
+        const urlMap = {
+          spotify: 'https://open.spotify.com',
+          youtube: 'https://www.youtube.com',
+          google: 'https://www.google.com',
+          github: 'https://www.github.com',
+          reddit: 'https://www.reddit.com',
+          twitter: 'https://www.x.com',
+          x: 'https://www.x.com',
+          chatgpt: 'https://chatgpt.com',
+          maps: 'https://maps.google.com',
+          gmail: 'https://mail.google.com',
+          wikipedia: 'https://www.wikipedia.org'
+        };
+
+        if (window.require) {
+          const { ipcRenderer } = window.require('electron');
+          if (act.action === 'launch' && act.target) {
+            if (urlMap[act.target]) {
+              ipcRenderer.invoke('open-url', urlMap[act.target]);
+            } else {
+              ipcRenderer.invoke('launch-app', act.target);
+            }
+          } else if (act.action === 'search' && act.query) {
+            ipcRenderer.invoke('open-url', `https://www.google.com/search?q=${encodeURIComponent(act.query)}`);
+          }
+        }
+      } catch (e) {
+        console.warn('[JARVIS HUD] Client IPC launch notification:', e.message);
+      }
+    }
 
     // Speak response exactly once
     speakText(respText);
