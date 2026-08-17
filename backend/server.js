@@ -39,7 +39,7 @@ let latestTelemetry = { cpu: 30, memory: 50, latency: 12 };
 const clients = new Set();
 
 // Active processing state for barge-in cancellation
-let activeRequestId = 0;
+let isInterrupted = false;
 
 // Broadcast to all connected clients
 function broadcast(data) {
@@ -77,7 +77,7 @@ wss.on('connection', (ws) => {
   ws.on('message', async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      console.log(`[JARVIS] Received message event: ${msg.type}`);
+      console.log(`[JARVIS] Received message event: ${msg.type}`, msg.data || '');
 
       switch (msg.type) {
         case 'speech_start': {
@@ -91,20 +91,19 @@ wss.on('connection', (ws) => {
         }
 
         case 'interrupt': {
-          // Barge-in protocol: Cancel active task and immediately switch to LISTENING
           console.log('[JARVIS] >>> BARGE-IN INTERRUPT RECEIVED from client <<<');
-          activeRequestId++; // invalidate in-flight response
+          isInterrupted = true;
           broadcast({ type: 'status_change', data: { status: 'LISTENING' } });
           break;
         }
 
         case 'transcript': {
-          const currentReqId = ++activeRequestId;
+          isInterrupted = false;
           const userText = msg.data?.text || '';
 
           if (!userText.trim()) break;
 
-          console.log(`[JARVIS] Processing command: "${userText}"`);
+          console.log(`[JARVIS] Executing command: "${userText}"`);
 
           // 1. Set assistant state to THINKING
           broadcast({ type: 'status_change', data: { status: 'THINKING' } });
@@ -112,11 +111,12 @@ wss.on('connection', (ws) => {
           // 2. Process via AI Engine (Gemini Function Calling or Local Fallback)
           const result = await aiEngine.processCommand(userText, latestTelemetry);
 
-          // Check if request was interrupted while waiting for LLM
-          if (currentReqId !== activeRequestId) {
-            console.log('[JARVIS] Request was cancelled due to barge-in interrupt.');
+          if (isInterrupted) {
+            console.log('[JARVIS] Request was cancelled by user interrupt.');
             break;
           }
+
+          console.log(`[JARVIS] Generated Response: "${result.spokenResponse}"`);
 
           // 3. Broadcast parsed NLU data to update HUD telemetry display
           broadcast({
@@ -145,7 +145,6 @@ wss.on('connection', (ws) => {
         }
 
         case 'speech_finished': {
-          // Client completed audio playback
           broadcast({ type: 'status_change', data: { status: 'IDLE' } });
           break;
         }

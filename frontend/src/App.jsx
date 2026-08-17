@@ -38,7 +38,7 @@ function Header({ isConnected, latency }) {
   }, []);
 
   return (
-    <header className="header-bar sticky top-0 z-50 px-6 py-3">
+    <header className="header-bar sticky top-0 z-50 px-6 py-2.5">
       <div className="flex items-center justify-between max-w-[1920px] mx-auto">
         {/* Left: Logo & status */}
         <div className="flex items-center gap-4">
@@ -105,7 +105,6 @@ function Header({ isConnected, latency }) {
 export default function App() {
   const [loaded, setLoaded] = useState(false);
 
-  // Central WebSocket hook — single source of truth for all live data
   const {
     isConnected,
     telemetry,
@@ -127,23 +126,23 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-jarvis-bg relative">
+    <div className="min-h-screen bg-jarvis-bg relative flex flex-col justify-between">
       {/* Background effects */}
       <div className="hud-bg" />
       <div className="scanline-overlay" />
 
-      {/* Header */}
+      {/* Top Header */}
       <Header isConnected={isConnected} latency={telemetry.latency} />
 
-      {/* Main dashboard grid */}
+      {/* Main 3-Column HUD Dashboard */}
       <main
-        className={`relative z-10 max-w-[1920px] mx-auto p-4 lg:p-6 transition-opacity duration-1000 ${
+        className={`relative z-10 max-w-[1920px] w-full mx-auto p-4 lg:p-5 flex-1 transition-opacity duration-1000 ${
           loaded ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 min-h-[calc(100vh-80px)]">
-          {/* ═══ LEFT COLUMN: Command Terminal ═══ */}
-          <div className="lg:col-span-3 flex flex-col min-h-[400px] lg:min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 h-full">
+          {/* ═══ LEFT COLUMN: Live Command Terminal ═══ */}
+          <div className="lg:col-span-4 flex flex-col min-h-[500px]">
             <CommandTerminal
               messages={messages}
               sendTranscript={sendTranscript}
@@ -153,10 +152,9 @@ export default function App() {
             />
           </div>
 
-          {/* ═══ CENTER COLUMN: AI Core + Diagnostics ═══ */}
-          <div className="lg:col-span-5 flex flex-col gap-4 lg:gap-5">
-            {/* Central AI Core */}
-            <div className="glass-panel p-4 lg:p-6 flex-shrink-0">
+          {/* ═══ CENTER COLUMN: Holographic AI Core Orb ═══ */}
+          <div className="lg:col-span-5 flex flex-col">
+            <div className="glass-panel p-5 flex flex-col items-center justify-center flex-1">
               <AICoreOrb
                 status={assistantStatus}
                 isConnected={isConnected}
@@ -168,13 +166,16 @@ export default function App() {
                 voiceSupported={voiceSupported}
               />
             </div>
+          </div>
 
-            {/* System Diagnostics - below center */}
+          {/* ═══ RIGHT COLUMN: Telemetry & Directives ═══ */}
+          <div className="lg:col-span-3 flex flex-col gap-4">
+            {/* System Diagnostics */}
             <div
-              className="flex-1 min-h-[200px]"
+              className="flex-1"
               style={{
-                animation: 'fade-in-up 0.8s ease-out forwards',
-                animationDelay: '0.6s',
+                animation: 'fade-in-right 0.8s ease-out forwards',
+                animationDelay: '0.2s',
                 opacity: 0,
               }}
             >
@@ -184,14 +185,12 @@ export default function App() {
                 isConnected={isConnected}
               />
             </div>
-          </div>
 
-          {/* ═══ RIGHT COLUMN: Directives Module ═══ */}
-          <div className="lg:col-span-4 flex flex-col gap-4 lg:gap-5">
+            {/* Upcoming Directives */}
             <div
               style={{
                 animation: 'fade-in-right 0.8s ease-out forwards',
-                animationDelay: '0.3s',
+                animationDelay: '0.35s',
                 opacity: 0,
               }}
             >
@@ -203,10 +202,10 @@ export default function App() {
 
       {/* Bottom status bar */}
       <footer className="relative z-10 border-t border-cyan-500/5 px-6 py-2">
-        <div className="max-w-[1920px] mx-auto flex items-center justify-between text-[0.55rem] font-mono text-white/15">
+        <div className="max-w-[1920px] mx-auto flex items-center justify-between text-[0.55rem] font-mono text-white/20">
           <span>JARVIS CORE v4.7.1 | QUANTUM NEURAL ENGINE</span>
           <span>
-            BACKEND: {isConnected ? 'CONNECTED' : 'DISCONNECTED'} | VOICE: {voiceSupported ? 'ACTIVE' : 'UNAVAILABLE'} | CLEARANCE: OMEGA-7
+            BACKEND: {isConnected ? 'CONNECTED' : 'DISCONNECTED'} | VOICE: {voiceSupported ? 'ACTIVE' : 'READY'} | CLEARANCE: OMEGA-7
           </span>
           <span>© 2026 STARK INDUSTRIES — CLASSIFIED</span>
         </div>

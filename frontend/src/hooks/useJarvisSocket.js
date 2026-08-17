@@ -10,7 +10,7 @@ export default function useJarvisSocket() {
     memory: 0,
     latency: 0,
     uptime: '0d 0h 0m',
-    network: { download: '0.00 MB/s', upload: '0.00 MB/s', status: 'INITIALIZING' }
+    network: { download: '0.00 MB/s', upload: '0.00 MB/s', status: 'ONLINE' }
   });
   const [nlu, setNlu] = useState({
     intent: 'awaiting_input',
@@ -28,14 +28,13 @@ export default function useJarvisSocket() {
   const recognitionRef = useRef(null);
   const isMicActiveRef = useRef(false);
 
-  // Keep ref in sync
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
   }, [isMicActive]);
 
   // Send message over WebSocket
   const sendMessage = useCallback((type, data = {}) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type, data }));
     }
   }, []);
@@ -46,22 +45,20 @@ export default function useJarvisSocket() {
       console.log('[JARVIS Voice] Barge-in triggered! Halting TTS playback.');
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
+      sendMessage('interrupt');
     }
-    sendMessage('interrupt');
   }, [sendMessage]);
 
   // Text-To-Speech function
   const speakText = useCallback((text) => {
     if (!('speechSynthesis' in window) || !text) return;
 
-    // Cancel any current utterance
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05;
     utterance.pitch = 0.95;
 
-    // Pick best British or English robotic voice
     const voices = window.speechSynthesis.getVoices();
     const jarvisVoice = voices.find(v =>
       v.lang.includes('en-GB') ||
@@ -135,7 +132,6 @@ export default function useJarvisSocket() {
               action: msg.data.action,
               time: new Date(msg.data.timestamp).toLocaleTimeString('en-US', { hour12: false })
             }]);
-            // Play TTS audio response
             speakText(respText);
             break;
           }
@@ -176,11 +172,11 @@ export default function useJarvisSocket() {
     };
   }, [connect]);
 
-  // Initialize Speech-to-Text Recognition
+  // Speech-to-Text Recognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn('[JARVIS Voice] Web Speech API not supported in this browser.');
+      console.warn('[JARVIS Voice] Web Speech API not supported in this browser/environment.');
       return;
     }
 
@@ -195,7 +191,6 @@ export default function useJarvisSocket() {
     };
 
     recognition.onspeechstart = () => {
-      // Barge-in: if user starts speaking while JARVIS is talking, interrupt immediately!
       if (window.speechSynthesis && window.speechSynthesis.speaking) {
         triggerBargeIn();
       }
@@ -221,31 +216,27 @@ export default function useJarvisSocket() {
 
       if (final.trim()) {
         const cleanFinal = final.trim();
-        console.log(`[JARVIS Voice] Final Recognized Speech: "${cleanFinal}"`);
+        console.log(`[JARVIS Voice] Recognized: "${cleanFinal}"`);
         setInterimTranscript('');
 
-        // Add user message to UI
         setMessages(prev => [...prev, {
           type: 'user',
           text: cleanFinal,
           time: new Date().toLocaleTimeString('en-US', { hour12: false })
         }]);
 
-        // Send transcript to backend AI Engine
         sendMessage('transcript', { text: cleanFinal });
       }
     };
 
     recognition.onerror = (err) => {
-      console.error('[JARVIS Voice] Speech recognition error:', err.error);
+      console.error('[JARVIS Voice] Recognition error:', err.error);
       if (err.error === 'not-allowed') {
         setIsMicActive(false);
       }
     };
 
     recognition.onend = () => {
-      console.log('[JARVIS Voice] Recognition ended.');
-      // Auto-restart if user left mic active
       if (isMicActiveRef.current) {
         try {
           recognition.start();
@@ -272,7 +263,7 @@ export default function useJarvisSocket() {
   const toggleMic = useCallback(() => {
     const recognition = recognitionRef.current;
     if (!recognition) {
-      alert('Speech Recognition is not supported by your browser. Please use Chrome, Edge, or a Webkit-compatible browser.');
+      alert('Microphone speech recognition is not supported in this runtime. You can type commands into the terminal!');
       return;
     }
 
@@ -289,7 +280,6 @@ export default function useJarvisSocket() {
       setIsMicActive(true);
       isMicActiveRef.current = true;
       try {
-        // If JARVIS is currently speaking when user clicks mic, stop TTS
         triggerBargeIn();
         recognition.start();
       } catch (e) {
@@ -302,7 +292,6 @@ export default function useJarvisSocket() {
   const sendTranscript = useCallback((text) => {
     if (!text || !text.trim()) return;
 
-    // Barge-in check
     triggerBargeIn();
 
     setMessages(prev => [...prev, {

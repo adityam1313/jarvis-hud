@@ -6,13 +6,13 @@ class Executor {
   static APP_WHITELIST = {
     // Desktop Applications
     'calculator': {
-      windows: 'start calc:',
+      windows: 'calc',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
     },
     'calc': {
-      windows: 'start calc:',
+      windows: 'calc',
       darwin: 'open -a Calculator',
       linux: 'gnome-calculator',
       name: 'Calculator'
@@ -30,13 +30,13 @@ class Executor {
       name: 'Paint'
     },
     'terminal': {
-      windows: 'start powershell',
+      windows: 'start powershell.exe',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Terminal'
     },
     'cmd': {
-      windows: 'start cmd',
+      windows: 'start cmd.exe',
       darwin: 'open -a Terminal',
       linux: 'gnome-terminal',
       name: 'Command Prompt'
@@ -54,6 +54,12 @@ class Executor {
       name: 'File Explorer'
     },
     'vscode': {
+      windows: 'code',
+      darwin: 'open -a "Visual Studio Code"',
+      linux: 'code',
+      name: 'Visual Studio Code'
+    },
+    'code': {
       windows: 'code',
       darwin: 'open -a "Visual Studio Code"',
       linux: 'code',
@@ -124,7 +130,6 @@ class Executor {
    */
   static openUrl(url) {
     return new Promise((resolve) => {
-      // Validate that URL is well-formed https/http to prevent injection
       try {
         const parsed = new URL(url);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -201,7 +206,7 @@ class Executor {
       };
     }
 
-    console.log(`[Executor] Executing whitelisted command: ${commandToRun} for ${target.name}`);
+    console.log(`[Executor] Executing whitelisted command: "${commandToRun}" for ${target.name}`);
     return new Promise((resolve) => {
       exec(commandToRun, (err) => {
         if (err) {
@@ -212,6 +217,7 @@ class Executor {
             message: `Could not launch ${target.name}: ${err.message}`
           });
         }
+        console.log(`[Executor] Launch confirmed: ${target.name}`);
         resolve({
           success: true,
           sandboxed: false,
