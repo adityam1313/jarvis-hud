@@ -1,0 +1,13 @@
+{
+  "name": "jarvis-hud-monorepo",
+  "version": "1.0.0",
+  "description": "JARVIS Futuristic HUD AI Voice Assistant Desktop App",
+  "private": true,
+  "scripts": {
+    "start": "npm run start:app",
+    "start:backend": "node backend/server.js",
+    "start:frontend": "cd frontend && npm run dev",
+    "start:app": "cd frontend && npx electron electron.cjs",
+    "build": "cd frontend && npm run build"
+  }
+}
