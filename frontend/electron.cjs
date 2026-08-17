@@ -10,11 +10,17 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
-// Disable cache locks and GPU conflicts
+// ═════════════════════════════════════════════════════════════════
+// HIGH PERFORMANCE HARDWARE ACCELERATION & 144Hz+ REFRESH FLAGS
+// ═════════════════════════════════════════════════════════════════
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-native-gpu-memory-buffers');
+app.commandLine.appendSwitch('disable-gpu-vsync');
+app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('enable-accelerated-video-decode');
 app.commandLine.appendSwitch('disable-http-cache');
-app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('no-sandbox');
 
 let mainWindow = null;
 let backendProcess = null;
@@ -43,11 +49,13 @@ function createWindow() {
     title: 'J.A.R.V.I.S. — AI Command Interface',
     autoHideMenuBar: true,
     show: true,
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
+      backgroundThrottling: false, // Prevents 30fps throttling when unfocused
     },
   });
 
